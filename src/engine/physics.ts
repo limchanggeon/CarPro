@@ -117,7 +117,7 @@ export function step(
 
   // ─── 조향 ───
   const speedFactor = 1 / (1 + Math.abs(state.vx) * 0.045);
-  const steerTarget = steerCmd * maxSteer * speedFactor;
+  const steerTarget = steerCmd * maxSteer * spec.steerScale * speedFactor;
   const maxDStep = 4.5 * dt;
   state.steer += Math.max(-maxDStep, Math.min(maxDStep, steerTarget - state.steer));
 
@@ -167,8 +167,8 @@ export function step(
       state.engineRpm = 0;
     }
   } else {
-    // ICE
-    const freeSpin = () => {
+    // ICE — N단/슬립 구간은 클러치 반력 포함 엔진 적분
+    const integrateEngine = (T_reaction: number) => {
       const omegaEng = state.engineRpm * Math.PI / 30;
       const omegaIdle = spec.idleRpm * Math.PI / 30;
       const effectiveThrottle = state.revCut ? 0 : throttle;
@@ -176,25 +176,30 @@ export function step(
       const T_idle = throttle < 0.02 ? Math.max(0, (omegaIdle - omegaEng) * 2.5) : 0;
       const b = 0.06;
       const T_drag = throttle < 0.02 ? 1.5 : 0;
-      const num = omegaEng + ((T_comb + T_idle - T_drag) / spec.I_eng) * dt;
+      const num = omegaEng + ((T_comb + T_idle - T_drag - T_reaction) / spec.I_eng) * dt;
       const den = 1 + (b / spec.I_eng) * dt;
       state.engineRpm = Math.max(200, Math.min(spec.maxRpm + 200, (num / den) * 30 / Math.PI));
     };
 
     if (state.gear !== 0) {
       const ratio = spec.gears[state.gear + 1] * spec.finalDrive;
-      const coupled = Math.abs(omegaDrive * ratio) * 30 / Math.PI;
-      if (coupled < spec.idleRpm) freeSpin();
-      else state.engineRpm = Math.min(spec.maxRpm + 400, coupled);
+      const coupledRpm = Math.abs(omegaDrive * ratio) * 30 / Math.PI;
+      const locked = coupledRpm >= spec.idleRpm && coupledRpm >= state.engineRpm - 250;
 
-      const effThrottle = state.revCut ? 0 : throttle;
-      if (coupled < spec.idleRpm) {
-        const slipFraction = Math.max(0, Math.min(1, (state.engineRpm - 600) / 1500));
-        const T_eng = effThrottle * engineTorque(state.engineRpm, spec) * surfacePower;
-        const T_demand = T_eng * slipFraction;
-        const T_clutch = Math.sign(T_demand) * Math.min(Math.abs(T_demand), spec.clutchMaxTorque);
-        Tdrive = T_clutch * ratio * spec.drivelineEff;
+      if (!locked) {
+        // 슬립 클러치 — 용량 기반 + 런치 RPM 컨트롤러
+        // 목표: 토크 피크 부근(또는 휠 결합 RPM 중 높은 쪽)으로 엔진 유지, 초과분만큼 전달
+        const peakPt = spec.torque.reduce((a, b) => (b[1] > a[1] ? b : a));
+        const launchOmega = Math.max(spec.idleRpm * 1.2, peakPt[0] * 0.85) * Math.PI / 30;
+        const omegaEng = state.engineRpm * Math.PI / 30;
+        const omegaTarget = Math.max(launchOmega, Math.abs(omegaDrive * ratio));
+        const kp = Math.max(2, spec.clutchMaxTorque / 100);
+        const T_clutch = Math.max(0, Math.min(throttle * spec.clutchMaxTorque, kp * (omegaEng - omegaTarget)));
+        integrateEngine(T_clutch);
+        Tdrive = T_clutch * ratio * spec.drivelineEff * surfacePower;
       } else {
+        state.engineRpm = Math.min(spec.maxRpm + 400, coupledRpm);
+        const effThrottle = state.revCut ? 0 : throttle;
         const T_eng = effThrottle * engineTorque(state.engineRpm, spec) * surfacePower;
         const T_clutch = Math.sign(T_eng) * Math.min(Math.abs(T_eng), spec.clutchMaxTorque);
         Tdrive = T_clutch * ratio * spec.drivelineEff;
@@ -206,7 +211,7 @@ export function step(
         }
       }
     } else {
-      freeSpin();
+      integrateEngine(0);
     }
   }
 

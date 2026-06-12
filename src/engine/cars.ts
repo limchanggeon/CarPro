@@ -58,6 +58,7 @@ export interface CarSpec {
   pacejkaLat: PacejkaCoef;
   loadSensitivity: number;
   gripMult: number;            // 타이어 컴파운드 (슬릭 > 1)
+  steerScale: number;          // 조향 입력 스케일 (1 = 승용차)
 
   tireOptimalTemp: number;
   tireTempWindowCold: number;
@@ -111,7 +112,7 @@ const BASE: Omit<CarSpec, 'id' | 'name' | 'brand' | 'desc' | 'stats' | 'torque' 
   rollResist: 150, rollResistVelScale: 12.0,
   pacejkaLong: { B: 15, C: 1.5, E: 0.85 },
   pacejkaLat: { B: 12, C: 1.4, E: 0.85 },
-  loadSensitivity: 0.18, gripMult: 1.0,
+  loadSensitivity: 0.18, gripMult: 1.0, steerScale: 1.0,
   tireOptimalTemp: 85, tireTempWindowCold: 55, tireTempWindowHot: 22,
   tireMinMu: 0.78, tireAmbient: 20, tireStartTemp: 65,
   tireHeatCoef: 2.5e-4, tireCoolBase: 0.0015, tireCoolSpeed: 0.0025, tireCoolSpeedExp: 0.8,
@@ -212,7 +213,7 @@ export const CARS: CarSpec[] = [
     brand: 'Formula 1',
     desc: '1.6 V6 하이브리드 1,000마력 — 다운포스가 물리를 새로 쓴다',
     stats: { power: '1,000 ps', torque: '640 Nm', weight: '798 kg', drive: 'RWD' },
-    mass: 798, inertia: 900,
+    mass: 798, inertia: 1100,
     lf: 1.98, lr: 1.62, wheelbase: 3.6,
     cgHeight: 0.25, track: 1.6, wheelRadius: 0.33,
     I_wheel_F: 0.9, I_wheel_R: 1.1, I_eng: 0.09,
@@ -223,9 +224,14 @@ export const CARS: CarSpec[] = [
     brakeMaxTotal: 11000, brakeStaticBias: 0.58, handbrakeForce: 1000,
     clutchMaxTorque: 900, drivelineEff: 0.95,
     aeroDragCoef: 0.9,
-    aeroLiftCoef: 3.0, aeroLiftFrontFrac: 0.45,    // 강한 다운포스
-    gripMult: 1.6,                                  // 슬릭
-    tireOptimalTemp: 95, tireHeatCoef: 4.0e-4, tireWearCoef: 1.6e-7,
+    aeroLiftCoef: 3.5, aeroLiftFrontFrac: 0.45,    // 강한 다운포스
+    gripMult: 1.85,                                 // 슬릭 — 기계적 그립 자체가 높음
+    loadSensitivity: 0.08,                          // 슬릭은 고하중에서 μ 손실이 적음 → 다운포스가 온전히 그립으로
+    steerScale: 0.62,                               // 작은 조향각 — 고속 트위치 억제
+    pacejkaLong: { B: 18, C: 1.5, E: 0.85 },        // 강성 높은 슬릭 곡선
+    pacejkaLat: { B: 16, C: 1.45, E: 0.85 },
+    tireOptimalTemp: 95, tireStartTemp: 90,         // 타이어 워머 — 출발부터 작동 온도
+    tireHeatCoef: 4.0e-4, tireWearCoef: 1.6e-7,
     brakeMass: 8, brakeFadeStart: 900, brakeFadeKnee: 1100, brakeFadeMin: 0.45,
     absSlipThreshold: 0.1, tcSlipThreshold: [0.4, 0.22, 0.15, 0.1],
     escBrakeForceMax: 9000,
