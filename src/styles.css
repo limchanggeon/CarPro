@@ -1,0 +1,493 @@
+/* CarPro GR86 SIM v4 — dark racing glassmorphism */
+
+:root {
+  --panel-bg: rgba(13, 16, 22, 0.72);
+  --panel-border: rgba(255, 255, 255, 0.09);
+  --accent: #e83e3e;
+  --green: #3ec88a;
+  --text: #e8ecf2;
+  --dim: #7a8494;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', 'Apple SD Gothic Neo', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body, #root, #app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0c10;
+  font-family: var(--sans);
+  color: var(--text);
+  user-select: none;
+}
+
+#app { display: flex; flex-direction: column; }
+
+#viewport { position: relative; flex: 1; overflow: hidden; }
+
+#worldCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+#vignette {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.85) 100%);
+  transition: opacity 0.2s;
+}
+
+#hud { position: absolute; inset: 0; pointer-events: none; }
+#hud button { pointer-events: auto; }
+
+.panel, #cluster .block, #lap-hud, #g-meter, #minimap, #sim-panel, #telemetry-graph, #help-overlay {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  font-weight: 600;
+}
+
+/* ───── 클러스터 (좌상단: 속도/기어/RPM) ───── */
+#cluster {
+  position: absolute;
+  top: 16px; left: 16px;
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+#cluster .block { padding: 10px 16px; min-width: 86px; }
+
+#cluster .value {
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+#cluster .unit { font-size: 12px; color: var(--dim); }
+
+#cluster .gear {
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--green);
+  line-height: 1.15;
+  animation: gearflash 0.25s ease-out;
+}
+
+@keyframes gearflash {
+  0% { color: #fff; text-shadow: 0 0 14px rgba(255,255,255,0.8); }
+  100% { color: var(--green); text-shadow: none; }
+}
+
+#cluster .block.rpm { min-width: 200px; position: relative; }
+#cluster .rpm-text { color: var(--text); font-family: var(--mono); }
+
+.tach-track {
+  position: relative;
+  height: 12px;
+  margin-top: 10px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tach-track .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2e9e63, #d8c33a 60%, #e83e3e 88%);
+  border-radius: 6px;
+  transition: width 0.04s linear;
+}
+
+.tach-track .redline {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 93.3%;
+  width: 2px;
+  background: var(--accent);
+}
+
+#shift-light {
+  position: absolute;
+  top: 8px; right: 10px;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+}
+#shift-light.on {
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+  animation: blink 0.12s infinite alternate;
+}
+@keyframes blink { from { opacity: 1; } to { opacity: 0.4; } }
+
+/* ───── 레브 LED 스트립 (상단 중앙) ───── */
+#rev-strip {
+  position: absolute;
+  top: 14px; left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  padding: 7px 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+}
+
+.led {
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+}
+.led.g.on { background: #3ec88a; box-shadow: 0 0 8px #3ec88a; }
+.led.a.on { background: #e8b53e; box-shadow: 0 0 8px #e8b53e; }
+.led.r.on { background: #e83e3e; box-shadow: 0 0 8px #e83e3e; }
+#rev-strip.limiter .led.on { animation: blink 0.08s infinite alternate; }
+
+/* ───── 슬립 정보 + 상태 라벨 ───── */
+#slip-info {
+  position: absolute;
+  top: 118px; left: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  white-space: pre;
+}
+#slip-info span { color: var(--text); }
+
+#status-label {
+  position: absolute;
+  top: 64px; left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--dim);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+}
+#status-label.drift { color: #e8b53e; }
+#status-label.power { color: #ff7b3e; }
+#status-label.wspin { color: #ff9d5c; }
+#status-label.spin { color: var(--accent); animation: blink 0.15s infinite alternate; }
+#status-label.under { color: #6ea8ff; }
+
+/* ───── 랩 타이머 (우상단) ───── */
+#lap-hud {
+  position: absolute;
+  top: 16px; right: 16px;
+  width: 240px;
+  padding: 12px 14px 10px;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 6px 10px;
+  font-family: var(--mono);
+}
+
+#lap-hud .value { font-size: 18px; font-weight: 700; }
+#lap-hud .value.big { font-size: 22px; }
+#lap-hud .value.green, #lap-hud .green { color: var(--green); }
+#lap-hud .white { color: #fff; }
+
+#lap-hud .lap-row {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-around;
+  border-top: 1px solid rgba(232,62,62,0.25);
+  padding-top: 6px;
+  font-size: 13px;
+}
+
+#lap-hud .lap-history {
+  grid-column: 1 / -1;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 6px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+}
+
+#lapClose {
+  position: absolute;
+  top: 6px; right: 8px;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 16px;
+  cursor: pointer;
+}
+#lapClose:hover { color: #fff; }
+
+#lapShow {
+  position: absolute;
+  top: 16px; right: 16px;
+  padding: 8px 14px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+/* ───── G-미터 (좌하단) ───── */
+#g-meter {
+  position: absolute;
+  bottom: 120px; left: 16px;
+  width: 132px; height: 132px;
+  border-radius: 50%;
+}
+
+.g-cross-h, .g-cross-v {
+  position: absolute;
+  background: rgba(255,255,255,0.1);
+}
+.g-cross-h { top: 50%; left: 8px; right: 8px; height: 1px; }
+.g-cross-v { left: 50%; top: 8px; bottom: 8px; width: 1px; }
+
+.g-title {
+  position: absolute;
+  top: 10px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+}
+
+#g-meter .g-trail, #g-dot {
+  position: absolute;
+  top: 50%; left: 50%;
+  margin: -5px 0 0 -5px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+}
+#g-meter .g-trail { background: rgba(232,62,62,0.3); }
+#g-dot { background: var(--accent); box-shadow: 0 0 10px rgba(232,62,62,0.8); }
+
+.g-readout {
+  position: absolute;
+  bottom: 12px; left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ───── 미니맵 (우하단) ───── */
+#minimap {
+  position: absolute;
+  bottom: 16px; right: 16px;
+  width: 210px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+#minimap-label {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+
+#minimap img {
+  display: block;
+  width: 100%;
+  filter: invert(1) brightness(0.85);
+  opacity: 0.9;
+  border-radius: 6px;
+}
+
+#minimap-car {
+  position: absolute;
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 10px solid var(--accent);
+  filter: drop-shadow(0 0 4px var(--accent));
+}
+
+/* ───── 심 패널 (우측 중단) ───── */
+#sim-panel {
+  position: absolute;
+  right: 16px; top: 50%;
+  transform: translateY(-58%);
+  width: 210px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+#sim-panel h4 {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+  margin-bottom: 6px;
+  font-family: var(--sans);
+}
+
+#sim-panel .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+#sim-panel .row.mt { margin-top: 6px; }
+
+.aid {
+  flex: 1;
+  text-align: center;
+  padding: 5px 0;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--mono);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: var(--dim);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.aid.on { color: var(--green); border-color: rgba(62,200,138,0.5); }
+.aid.active {
+  color: #0a0c10;
+  background: #e8b53e;
+  border-color: #e8b53e;
+  box-shadow: 0 0 10px rgba(232,181,62,0.6);
+}
+
+.temp.cold { color: #6ea8ff; }
+.temp.ok { color: var(--green); }
+.temp.warm { color: #e8b53e; }
+.temp.hot { color: var(--accent); }
+
+.tbar {
+  height: 4px;
+  margin-top: 3px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.tbar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #6ea8ff, #3ec88a 45%, #e8b53e 70%, #e83e3e 95%);
+  transition: width 0.15s;
+}
+.tbar.wear span { background: linear-gradient(90deg, #3ec88a, #e8b53e 60%, #e83e3e); }
+
+/* ───── 텔레메트리 그래프 (하단 좌중앙) ───── */
+#telemetry-graph {
+  position: absolute;
+  bottom: 16px; left: 16px;
+  padding: 8px 10px 6px;
+}
+
+.tg-legend {
+  display: flex;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  margin-bottom: 3px;
+}
+.tg-legend .spd { color: #78c8ff; }
+.tg-legend .thr { color: #50e68c; }
+.tg-legend .brk { color: #ff5046; }
+
+/* ───── 도움말 ───── */
+#help-overlay {
+  position: absolute;
+  bottom: 120px; left: 50%;
+  transform: translateX(-50%);
+  padding: 14px 20px;
+  font-size: 13px;
+  line-height: 2;
+  text-align: center;
+}
+
+#help-overlay kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 5px;
+  margin: 0 2px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+#help-overlay .pad { font-size: 11px; color: var(--dim); }
+
+#loading {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  color: var(--dim);
+  animation: blink 0.8s infinite alternate;
+}
+
+/* ───── 대시보드 (하단 바) ───── */
+#dashboard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 10px 20px;
+  background: #0d1016;
+  border-top: 1px solid var(--panel-border);
+  font-size: 12px;
+  color: var(--dim);
+  z-index: 10;
+}
+
+#dashboard label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+}
+
+#dashboard .val { color: var(--text); min-width: 38px; text-align: right; }
+
+#dashboard input[type="range"] {
+  width: 130px;
+  accent-color: var(--accent);
+}
+
+#dashboard button {
+  padding: 6px 16px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+#dashboard button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
