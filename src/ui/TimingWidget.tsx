@@ -1,6 +1,7 @@
 // 좌상단 F1 브로드캐스트 스타일 타이밍 위젯
 
 import { useStore, fmtLap } from '../store';
+import { useDim } from './useDim';
 
 export function TimingWidget() {
   const show = useStore((s) => s.ui.showLap);
@@ -12,6 +13,7 @@ export function TimingWidget() {
   const best = useStore((s) => s.telemetry.lapBestSec);
   const last = useStore((s) => s.telemetry.lapLastSec);
   const history = useStore((s) => s.telemetry.lapHistory);
+  const dim = useDim(0, 0.18, 0, 0.42);
 
   if (!show) {
     return <button id="lapShow" onClick={toggle} title="랩타임 열기 (L)">⏱ TIMING</button>;
@@ -24,7 +26,7 @@ export function TimingWidget() {
   }
 
   return (
-    <div id="timing">
+    <div id="timing" className={dim ? 'dimmed' : ''}>
       <div className="t-head">
         <span className="t-lap">LAP {ready ? lapNum + 1 : '—'}</span>
         <button className="t-close" onClick={toggle} title="닫기 (L)">×</button>

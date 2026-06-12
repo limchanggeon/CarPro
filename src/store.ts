@@ -48,6 +48,8 @@ export interface Telemetry {
   posX: number;
   posY: number;
   yawDeg: number;
+  carNx: number;
+  carNy: number;
 }
 
 export interface Settings {
@@ -89,6 +91,7 @@ const initialTelemetry: Telemetry = {
   lapNum: 0, lapReady: false, lapRunning: false,
   lapCurrentSec: 0, lapBestSec: null, lapLastSec: null, lapHistory: [],
   posX: 1022, posY: 891, yawDeg: 0,
+  carNx: 0.5, carNy: 0.5,
 };
 
 export const useStore = create<Store>((set) => ({

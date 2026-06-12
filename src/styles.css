@@ -48,6 +48,12 @@ html, body, #root {
 @keyframes blink { from { opacity: 1; } to { opacity: 0.35; } }
 .led-blink { animation: blink 0.08s infinite alternate; }
 
+/* 차량이 위젯 뒤로 지나갈 때 자동 페이드 */
+#cluster-pod, #telemetry-pod, #minimap, #timing, #systems {
+  transition: opacity 0.25s ease-out;
+}
+.dimmed { opacity: 0.18; }
+
 /* ═══════ 하단 중앙 — 게이지 클러스터 ═══════ */
 #cluster-pod {
   position: absolute;
@@ -352,6 +358,8 @@ html, body, #root {
   margin-bottom: 5px;
   font-family: var(--mono);
 }
+
+#minimap-wrap { position: relative; }
 
 #minimap img {
   display: block;

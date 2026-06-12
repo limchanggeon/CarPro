@@ -2,6 +2,7 @@
 
 import { useStore } from '../store';
 import { TelemetryGraph } from './TelemetryGraph';
+import { useDim } from './useDim';
 
 export function TelemetryPod() {
   const gx = useStore((s) => s.telemetry.gDispX);
@@ -13,11 +14,12 @@ export function TelemetryPod() {
   const alphaR = useStore((s) => s.telemetry.alphaR.toFixed(2));
   const kappaR = useStore((s) => s.telemetry.kappaR.toFixed(2));
 
+  const dim = useDim(0, 0.27, 0.6, 1);
   // G-미터 반경 56px 내로 표시 (스토어 값은 38px/G 스케일)
   const k = 56 / 58;
 
   return (
-    <div id="telemetry-pod">
+    <div id="telemetry-pod" className={dim ? 'dimmed' : ''}>
       <div className="tp-graph">
         <div className="tg-legend">
           <span className="spd">SPD</span>

@@ -66,6 +66,8 @@ export class Simulation {
   skidSegments: SkidSegment[] = [];
   smokeParticles: SmokeParticle[] = [];
   simTime = 0;
+  carNx = 0.5;          // 차량 스크린 정규화 좌표 (렌더러가 매 프레임 기록)
+  carNy = 0.5;
 
   private keys: Record<string, boolean> = {};
   private renderer: Renderer | null = null;
@@ -378,6 +380,8 @@ export class Simulation {
       posX: state.x,
       posY: state.y,
       yawDeg: state.yaw * 180 / Math.PI,
+      carNx: Math.round(this.carNx * 50) / 50,
+      carNy: Math.round(this.carNy * 50) / 50,
     };
     useStore.getState().setTelemetry(t);
   }

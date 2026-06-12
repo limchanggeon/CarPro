@@ -3,6 +3,7 @@
 import { useStore } from '../store';
 import { getSimulation } from '../engine/simulation';
 import { SPEC } from '../engine/constants';
+import { useDim } from './useDim';
 
 function tireColor(t: number): string {
   if (t < 70) return '#6ea8ff';
@@ -29,13 +30,14 @@ function AidChip(props: { id: 'abs' | 'tc' | 'esc'; on: boolean; active: boolean
 
 export function SystemsPod() {
   const t = useStore((s) => s.telemetry);
+  const dim = useDim(0.8, 1, 0, 0.38);
   const tF = Math.round(t.tireTempF), tR = Math.round(t.tireTempR);
   const wF = Math.round(t.tireWearF * 100), wR = Math.round(t.tireWearR * 100);
   const bF = Math.round(t.brakeTempF), bR = Math.round(t.brakeTempR);
   const cF = tireColor(tF), cR = tireColor(tR);
 
   return (
-    <div id="systems">
+    <div id="systems" className={dim ? 'dimmed' : ''}>
       <div className="sys-aids">
         <AidChip id="abs" on={t.absOn} active={t.absActive} label="ABS" />
         <AidChip id="tc" on={t.tcOn} active={t.tcActive} label={`TC·${t.tcLevel}`} />

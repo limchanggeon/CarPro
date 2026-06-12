@@ -2,6 +2,7 @@
 
 import { useStore } from '../store';
 import { SPEC } from '../engine/constants';
+import { useDim } from './useDim';
 
 const CX = 110, CY = 112;
 const GAUGE_R = 84;
@@ -34,6 +35,7 @@ export function Cluster() {
   const ledsOn = useStore((s) => s.telemetry.ledsOn);
   const throttle = useStore((s) => s.telemetry.throttle);
   const brake = useStore((s) => s.telemetry.brake);
+  const dim = useDim(0.33, 0.67, 0.6, 1);
 
   const fillEnd = START_DEG + SWEEP * Math.max(0.004, rpmFrac);
   const fillColor = rpmFrac >= REDLINE_FRAC ? '#e83e3e' : rpmFrac > 0.8 ? '#e8b53e' : '#3ec88a';
@@ -42,7 +44,7 @@ export function Cluster() {
   const [r2x, r2y] = polar(GAUGE_R + 9, redlineDeg);
 
   return (
-    <div id="cluster-pod">
+    <div id="cluster-pod" className={dim ? 'dimmed' : ''}>
       <svg viewBox="0 0 220 210" width="250" height="238">
         {/* 게이지 배경 트랙 */}
         <path d={arcPath(GAUGE_R, START_DEG, START_DEG + SWEEP)} fill="none"

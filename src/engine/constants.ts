@@ -79,7 +79,9 @@ export const CONFIG = {
   renderScale: 20,              // px per meter
   substeps: 8,
   maxDt: 0.05,
-  cameraLookAheadMaxScreen: 0.3,
+  cameraLookAheadMaxScreen: 0.2,
+  zoomOutMax: 0.35,             // 고속에서 renderScale 최대 35% 축소
+  zoomOutSpeed: 55,             // 이 속도(m/s)에서 최대 줌아웃
   cameraLerp: 8,
   baseShakeScale: 0.025,
   particleMax: 320,
@@ -88,13 +90,14 @@ export const CONFIG = {
   startX: 1022, startY: 891, startYaw: -Math.PI / 2,
 } as const;
 
+// 오프트랙(잔디) 페널티 — v4에서 활성화: 그립 -25%, 구름저항 4배, 엔진 -15%
 export const TRACK_META = {
   imgWidthMeters: 1500,
   originXm: 50, originYm: 50,
-  offTrackMu: 1.0,
-  offTrackRollMult: 1.0,
-  offTrackDragCoef: 0.0,
-  offTrackEnginePenalty: 1.0,
+  offTrackMu: 0.75,
+  offTrackRollMult: 4.0,
+  offTrackDragCoef: 0.6,
+  offTrackEnginePenalty: 0.85,
 } as const;
 
 export const START_LINE = {
