@@ -1,12 +1,12 @@
-// 신규 기능 — 라이브 텔레메트리 트레이스 (속도 / 스로틀 / 브레이크)
+// 라이브 텔레메트리 트레이스 (속도 / 스로틀 / 브레이크)
 // React 렌더 사이클 밖에서 자체 rAF로 캔버스에 그려 60fps 리렌더 비용 제거
 
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 
-const W = 260;
-const H = 84;
-const SAMPLES = 260;
+const W = 230;
+const H = 72;
+const SAMPLES = 230;
 
 export function TelemetryGraph() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,7 +28,7 @@ export function TelemetryGraph() {
       for (let i = 0; i < SAMPLES; i++) {
         const v = buf[(head + i) % SAMPLES];
         const x = (i / (SAMPLES - 1)) * W;
-        const y = H - 4 - Math.min(1, v / scale) * (H - 10);
+        const y = H - 3 - Math.min(1, v / scale) * (H - 8);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -43,7 +43,7 @@ export function TelemetryGraph() {
       head = (head + 1) % SAMPLES;
 
       ctx.clearRect(0, 0, W, H);
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
       ctx.lineWidth = 1;
       for (let gy = 1; gy < 3; gy++) {
         ctx.beginPath();
@@ -60,14 +60,5 @@ export function TelemetryGraph() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  return (
-    <div id="telemetry-graph">
-      <div className="tg-legend">
-        <span className="spd">SPD</span>
-        <span className="thr">THR</span>
-        <span className="brk">BRK</span>
-      </div>
-      <canvas ref={canvasRef} width={W} height={H} />
-    </div>
-  );
+  return <canvas ref={canvasRef} width={W} height={H} />;
 }

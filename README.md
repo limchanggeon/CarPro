@@ -20,6 +20,7 @@ CarPro는 **인제 스피디움** 서킷에서 토요타 GR86을 주행하는 2D
 
 ### v4 신규 기능
 
+- 🏎️ **모던 심레이싱 HUD 레이아웃** — 원형 RPM 게이지 클러스터(시프트 LED 아크 + 페달 인디케이터), F1 스타일 타이밍 위젯, 차량 도식 상태 포드, 슬라이드인 설정 드로어로 풀블리드 뷰포트 구성
 - 🔴 **라이브 텔레메트리 그래프** — 속도/스로틀/브레이크 트레이스 실시간 표시
 - 🏁 **랩 히스토리 패널** — 최근 5랩 기록, 베스트 랩 하이라이트
 - 🎮 **게임패드 지원** — 스틱 조향, 아날로그 트리거 가감속, 숄더 버튼 시프트
@@ -62,7 +63,19 @@ python3 -m http.server 8000
 | `H` | 도움말 표시 |
 | 🎮 게임패드 | 좌스틱 조향 · RT/LT 가감속 · RB/LB 시프트 · A 핸드브레이크 |
 
-하단 대시보드에서 **타이어 마찰계수(μ)**, **최대 조향각**, **볼륨**을 실시간 조절할 수 있습니다.
+우측 엣지의 ⚙ 버튼으로 설정 드로어를 열어 **타이어 마찰계수(μ)**, **최대 조향각**, **볼륨**을 실시간 조절할 수 있습니다.
+
+### HUD 레이아웃
+
+| 위치 | 위젯 |
+| --- | --- |
+| 하단 중앙 | 원형 RPM 게이지 + 속도/기어 + 시프트 LED 아크 + 브레이크/스로틀 페달 바 |
+| 좌상단 | F1 스타일 타이밍 위젯 (현재/베스트/라스트/델타 + 랩 히스토리) |
+| 상단 중앙 | 주행 상태 필 (CRUISE / DRIFT / SPIN / UNDERSTEER …) |
+| 우상단 | 차량 상태 포드 — 탑뷰 도식의 휠 색상 = 축별 타이어 온도, 브레이크 디스크 점 + ABS/TC/ESC 칩 |
+| 좌하단 | 텔레메트리 포드 — 트레이스 그래프 + G-미터 + 슬립 수치 |
+| 우하단 | 미니맵 |
+| 우측 엣지 | ⚙ 설정 드로어 / ? 도움말 |
 
 ## 아키텍처
 
@@ -78,8 +91,9 @@ carpro/
 │   ├── render/
 │   │   └── renderer.ts      # 단일 캔버스 렌더 파이프라인 (트랙/차량/스키드/카메라)
 │   ├── ui/                  # React HUD 컴포넌트
-│   │   ├── Hud.tsx, SpeedGear.tsx, GMeter.tsx, LapTimer.tsx,
-│   │   ├── Minimap.tsx, SimPanel.tsx, TelemetryGraph.tsx, Dashboard.tsx
+│   │   ├── Hud.tsx, Cluster.tsx, TimingWidget.tsx, SystemsPod.tsx,
+│   │   ├── TelemetryPod.tsx, TelemetryGraph.tsx, Minimap.tsx,
+│   │   ├── SettingsDrawer.tsx, HelpModal.tsx
 │   ├── store.ts             # zustand — 엔진이 publish하는 텔레메트리 / 설정
 │   ├── App.tsx / main.tsx
 │   └── styles.css           # 다크 글래스모피즘 HUD

@@ -59,6 +59,7 @@ export interface Settings {
 interface UiState {
   showHelp: boolean;
   showLap: boolean;
+  showSettings: boolean;
   trackReady: boolean;
 }
 
@@ -70,6 +71,7 @@ interface Store {
   setSetting: (key: keyof Settings, value: number) => void;
   toggleHelp: () => void;
   toggleLap: () => void;
+  toggleSettings: () => void;
   setTrackReady: (v: boolean) => void;
 }
 
@@ -92,11 +94,15 @@ const initialTelemetry: Telemetry = {
 export const useStore = create<Store>((set) => ({
   telemetry: initialTelemetry,
   settings: { mu: 1.0, maxSteer: 0.5, volume: 0.35 },
-  ui: { showHelp: true, showLap: true, trackReady: false },
+  ui: {
+    showHelp: typeof location === 'undefined' || !location.search.includes('nohelp'),
+    showLap: true, showSettings: false, trackReady: false,
+  },
   setTelemetry: (telemetry) => set({ telemetry }),
   setSetting: (key, value) => set((s) => ({ settings: { ...s.settings, [key]: value } })),
   toggleHelp: () => set((s) => ({ ui: { ...s.ui, showHelp: !s.ui.showHelp } })),
   toggleLap: () => set((s) => ({ ui: { ...s.ui, showLap: !s.ui.showLap } })),
+  toggleSettings: () => set((s) => ({ ui: { ...s.ui, showSettings: !s.ui.showSettings } })),
   setTrackReady: (trackReady) => set((s) => ({ ui: { ...s.ui, trackReady } })),
 }));
 
