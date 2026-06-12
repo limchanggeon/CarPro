@@ -1,26 +1,31 @@
 import { useState } from 'react';
 import { useStore } from '../store';
-import { TRACK_META } from '../engine/constants';
+import { getTrack } from '../engine/tracks';
 import { useDim } from './useDim';
 
-// 차량 마커를 이미지 래퍼 기준 % 좌표로 배치 — 패널 크기/패딩과 무관하게 정확
+// 트랙 surface에서 생성한 미니맵 이미지 + % 좌표 차량 마커
 export function Minimap() {
   const x = useStore((s) => Math.round(s.telemetry.posX));
   const y = useStore((s) => Math.round(s.telemetry.posY));
   const yawDeg = useStore((s) => Math.round(s.telemetry.yawDeg / 3) * 3);
+  const trackId = useStore((s) => s.ui.selectedTrackId);
+  const minimapUrl = useStore((s) => s.ui.minimapUrl);
   const dim = useDim(0.74, 1, 0.62, 1);
-  const [aspect, setAspect] = useState(1.23);   // H/W — 이미지 로드 시 실측값으로 교체
+  const [aspect, setAspect] = useState(1);   // 미니맵 이미지 H/W
 
-  const heightMeters = TRACK_META.imgWidthMeters * aspect;
-  const px = ((x - TRACK_META.originXm) / TRACK_META.imgWidthMeters) * 100;
-  const py = ((y - TRACK_META.originYm) / heightMeters) * 100;
+  const def = getTrack(trackId);
+  if (!minimapUrl) return null;
+
+  // surface가 덮는 월드 영역: 폭 worldWidthMeters, 높이 worldWidthMeters×aspect
+  const px = ((x - def.originX) / def.worldWidthMeters) * 100;
+  const py = ((y - def.originY) / (def.worldWidthMeters * aspect)) * 100;
 
   return (
     <div id="minimap" className={dim ? 'dimmed' : ''}>
-      <div id="minimap-label">INJE SPEEDIUM</div>
+      <div id="minimap-label">{def.name}</div>
       <div id="minimap-wrap">
         <img
-          src={`${import.meta.env.BASE_URL}map.png`}
+          src={minimapUrl}
           alt="track map"
           onLoad={(e) => {
             const img = e.currentTarget;

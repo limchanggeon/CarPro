@@ -6,6 +6,7 @@ import { TelemetryPod } from './TelemetryPod';
 import { Minimap } from './Minimap';
 import { SettingsDrawer } from './SettingsDrawer';
 import { HelpModal } from './HelpModal';
+import { Countdown } from './Countdown';
 
 export function Hud() {
   const statusLabel = useStore((s) => s.telemetry.statusLabel);
@@ -21,6 +22,7 @@ export function Hud() {
       <Cluster />
       <Minimap />
       <SettingsDrawer />
+      <Countdown />
       {!trackReady && <div id="loading">LOADING TRACK…</div>}
       <HelpModal />
     </div>

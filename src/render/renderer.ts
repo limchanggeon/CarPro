@@ -1,17 +1,10 @@
-// 단일 캔버스 렌더 파이프라인 — 잔디/그리드/트랙/스타트라인/스키드/연기/차량
-// 속도 비례 동적 줌아웃 + 카메라 룩어헤드/셰이크
+// 단일 캔버스 렌더 파이프라인 — 잔디/그리드/트랙/스타트라인/스키드/연기/차량(차종별)
 
-import { CONFIG, SPEC, START_LINE, TRACK_META } from '../engine/constants';
+import { CONFIG } from '../engine/constants';
 import type { Simulation } from '../engine/simulation';
+import type { CarSpec } from '../engine/cars';
 
 const SC = CONFIG.renderScale;
-
-// 차량 외형 (미터) — GR86 실측 비율
-const CAR_LEN = 4.26;
-const CAR_WID = 1.78;
-const WHEEL_LEN = 0.62;
-const WHEEL_WID = 0.24;
-
 const GRID_SPACING = 50;   // m
 
 export class Renderer {
@@ -53,13 +46,11 @@ export class Renderer {
     const { state, visual } = sim;
     const vw = canvas.width, vh = canvas.height;
 
-    // ─── 동적 줌: 고속일수록 화면을 넓게 ───
     const speed = Math.hypot(state.vx, state.vy);
     const zoomTarget = 1 - CONFIG.zoomOutMax * Math.min(1, speed / CONFIG.zoomOutSpeed);
     this.zoom += (zoomTarget - this.zoom) * (1 - Math.exp(-2 * rawDt));
     const s = SC * this.zoom;
 
-    // ─── 카메라: 룩어헤드 + 셰이크 ───
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
     const wvx = state.vx * cy - state.vy * sy;
     const wvy = state.vx * sy + state.vy * cy;
@@ -79,7 +70,6 @@ export class Renderer {
     this.camX = vw / 2 - state.x * s - visual.camAheadX + shakeX;
     this.camY = vh / 2 - state.y * s - visual.camAheadY + shakeY;
 
-    // ─── 배경: 잔디 텍스처 (월드 고정 스크롤) ───
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (this.grass) {
       ctx.save();
@@ -94,19 +84,17 @@ export class Renderer {
 
     this.drawGrid(s, vw, vh);
     this.drawTrack(sim, s, vw, vh);
-    this.drawStartLine(s);
+    this.drawStartLine(sim, s);
     this.drawSkids(sim, s, vw, vh);
     this.drawSmoke(sim, s, vw, vh);
     this.drawCar(sim, s);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // 차량 스크린 위치 publish (HUD 근접 페이드용)
     sim.carNx = (state.x * s + this.camX) / vw;
     sim.carNy = (state.y * s + this.camY) / vh;
   }
 
-  // 텔레메트리 그리드 — 50m 간격
   private drawGrid(s: number, vw: number, vh: number): void {
     const { ctx } = this;
     const step = GRID_SPACING * s;
@@ -124,10 +112,11 @@ export class Renderer {
     ctx.stroke();
   }
 
-  // 트랙 표면 — 보이는 영역만 source rect로 잘라 그림
   private drawTrack(sim: Simulation, s: number, vw: number, vh: number): void {
     const { ctx } = this;
     const track = sim.track;
+    const def = track.def;
+    if (!def) return;
     const src = track.surface ?? track.img;
     if (!src) return;
     const mPerPx = track.metersPerImgPx;
@@ -136,16 +125,16 @@ export class Renderer {
 
     const worldX0 = (0 - this.camX) / s, worldY0 = (0 - this.camY) / s;
     const worldX1 = (vw - this.camX) / s, worldY1 = (vh - this.camY) / s;
-    let sx = (worldX0 - TRACK_META.originXm) / mPerPx;
-    let sy = (worldY0 - TRACK_META.originYm) / mPerPx;
-    let ex = (worldX1 - TRACK_META.originXm) / mPerPx;
-    let ey = (worldY1 - TRACK_META.originYm) / mPerPx;
+    let sx = (worldX0 - def.originX) / mPerPx;
+    let sy = (worldY0 - def.originY) / mPerPx;
+    let ex = (worldX1 - def.originX) / mPerPx;
+    let ey = (worldY1 - def.originY) / mPerPx;
     sx = Math.max(0, Math.floor(sx)); sy = Math.max(0, Math.floor(sy));
     ex = Math.min(srcW, Math.ceil(ex)); ey = Math.min(srcH, Math.ceil(ey));
     if (ex <= sx || ey <= sy) return;
 
-    const dx = (TRACK_META.originXm + sx * mPerPx) * s + this.camX;
-    const dy = (TRACK_META.originYm + sy * mPerPx) * s + this.camY;
+    const dx = (def.originX + sx * mPerPx) * s + this.camX;
+    const dy = (def.originY + sy * mPerPx) * s + this.camY;
     const dw = (ex - sx) * mPerPx * s;
     const dh = (ey - sy) * mPerPx * s;
 
@@ -160,20 +149,30 @@ export class Renderer {
     }
   }
 
-  private drawStartLine(s: number): void {
+  // 스타트/피니시 — 임의 방향 라인 세그먼트에 체커 패턴
+  private drawStartLine(sim: Simulation, s: number): void {
     const { ctx } = this;
-    const x0 = (START_LINE.cx - START_LINE.halfWidth) * s + this.camX;
-    const y0 = START_LINE.cy * s + this.camY;
-    const w = START_LINE.halfWidth * 2 * s;
+    const sl = sim.track.startLine ?? sim.trackDef.startLine;
+    const x1 = sl.x1 * s + this.camX, y1 = sl.y1 * s + this.camY;
+    const x2 = sl.x2 * s + this.camX, y2 = sl.y2 * s + this.camY;
+    const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+    if (maxX < 0 || minX > this.canvas.width || maxY < 0 || minY > this.canvas.height) return;
+
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const ang = Math.atan2(y2 - y1, x2 - x1);
     const h = 1.2 * s;
-    if (y0 + h < 0 || y0 > this.canvas.height || x0 + w < 0 || x0 > this.canvas.width) return;
     const cell = h / 2;
+    ctx.save();
+    ctx.translate(x1, y1);
+    ctx.rotate(ang);
     for (let row = 0; row < 2; row++) {
-      for (let i = 0; i * cell < w; i++) {
+      for (let i = 0; i * cell < len; i++) {
         ctx.fillStyle = (i + row) % 2 === 0 ? 'rgba(245,245,245,0.9)' : 'rgba(20,20,20,0.9)';
-        ctx.fillRect(x0 + i * cell, y0 + row * cell, Math.min(cell, w - i * cell), cell);
+        ctx.fillRect(i * cell, (row - 1) * cell, Math.min(cell, len - i * cell), cell);
       }
     }
+    ctx.restore();
   }
 
   private drawSkids(sim: Simulation, s: number, vw: number, vh: number): void {
@@ -213,59 +212,24 @@ export class Renderer {
 
   private drawCar(sim: Simulation, s: number): void {
     const { ctx } = this;
-    const { state, visual, inputs } = sim;
+    const { state, visual, inputs, spec } = sim;
     const z = this.zoom;
+    const v = spec.visual;
 
     ctx.save();
     ctx.translate(state.x * s + this.camX, state.y * s + this.camY);
     ctx.rotate(state.yaw);
 
-    // 그림자 (롤/피치에 따라 오프셋)
+    // 그림자
     ctx.save();
     ctx.translate(-visual.pitch * 16 * z, visual.roll * 18 * z);
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    roundRect(ctx, -CAR_LEN / 2 * s - 2, -CAR_WID / 2 * s - 2, CAR_LEN * s + 4, CAR_WID * s + 4, 9 * z);
+    roundRect(ctx, -v.len / 2 * s - 2, -v.wid / 2 * s - 2, v.len * s + 4, v.wid * s + 4, 9 * z);
     ctx.fill();
     ctx.restore();
 
-    // 휠 — 전륜은 조향각 반영
-    ctx.fillStyle = '#0c0d10';
-    const wheelXs = [SPEC.lf, -SPEC.lr];
-    const halfTrack = SPEC.track / 2;
-    for (const wx of wheelXs) {
-      for (const side of [-1, 1]) {
-        ctx.save();
-        ctx.translate(wx * s, side * halfTrack * s);
-        if (wx > 0) ctx.rotate(state.steer);
-        roundRect(ctx, -WHEEL_LEN / 2 * s, -WHEEL_WID / 2 * s, WHEEL_LEN * s, WHEEL_WID * s, 3 * z);
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-
-    // 차체 — 롤에 따라 살짝 횡 시프트
-    ctx.save();
-    ctx.translate(0, visual.roll * 8 * z);
-    const bodyGrad = ctx.createLinearGradient(0, -CAR_WID / 2 * s, 0, CAR_WID / 2 * s);
-    bodyGrad.addColorStop(0, '#e04340');
-    bodyGrad.addColorStop(0.5, '#c8302e');
-    bodyGrad.addColorStop(1, '#8e1f1e');
-    ctx.fillStyle = bodyGrad;
-    roundRect(ctx, -CAR_LEN / 2 * s, -CAR_WID / 2 * s, CAR_LEN * s, CAR_WID * s, 8 * z);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // 캐빈
-    ctx.fillStyle = '#181c24';
-    roundRect(ctx, -CAR_LEN * 0.28 * s, -CAR_WID * 0.36 * s, CAR_LEN * 0.42 * s, CAR_WID * 0.72 * s, 6 * z);
-    ctx.fill();
-
-    // 본넷 라인
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    roundRect(ctx, CAR_LEN * 0.2 * s, -CAR_WID * 0.3 * s, CAR_LEN * 0.24 * s, CAR_WID * 0.6 * s, 4 * z);
-    ctx.fill();
+    if (v.kind === 'f1') this.drawF1Body(sim, s);
+    else this.drawCarBody(sim, s);
 
     // 브레이크 라이트
     const brakeLevel = Math.max(inputs.brake, inputs.hand ? 1 : 0);
@@ -277,14 +241,124 @@ export class Renderer {
       ctx.shadowBlur = 0;
       ctx.fillStyle = 'rgba(120,20,18,0.8)';
     }
-    for (const side of [-1, 1]) {
-      roundRect(ctx, -CAR_LEN / 2 * s + 1, side * CAR_WID * 0.32 * s - 2.5 * z, 4 * z, 5 * z, 2 * z);
+    if (v.kind === 'f1') {
+      // F1 — 리어윙 중앙 레인라이트
+      roundRect(ctx, -v.len / 2 * s + 1, -3 * z, 4 * z, 6 * z, 2 * z);
       ctx.fill();
+    } else {
+      for (const side of [-1, 1]) {
+        roundRect(ctx, -v.len / 2 * s + 1, side * v.wid * 0.32 * s - 2.5 * z, 4 * z, 5 * z, 2 * z);
+        ctx.fill();
+      }
     }
     ctx.shadowBlur = 0;
     ctx.restore();
+  }
 
+  private drawWheels(spec: CarSpec, s: number, z: number, steer: number, exposed: boolean): void {
+    const { ctx } = this;
+    const wheelLen = (exposed ? 0.72 : 0.62) * s;
+    const wheelWid = (exposed ? 0.36 : 0.24) * s;
+    ctx.fillStyle = '#0c0d10';
+    for (const wx of [spec.lf, -spec.lr]) {
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(wx * s, side * (spec.track / 2) * s);
+        if (wx > 0) ctx.rotate(steer);
+        roundRect(ctx, -wheelLen / 2, -wheelWid / 2, wheelLen, wheelWid, 3 * z);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  private drawCarBody(sim: Simulation, s: number): void {
+    const { ctx } = this;
+    const { state, visual, spec } = sim;
+    const v = spec.visual;
+    const z = this.zoom;
+
+    this.drawWheels(spec, s, z, state.steer, false);
+
+    ctx.save();
+    ctx.translate(0, visual.roll * 8 * z);
+    const bodyGrad = ctx.createLinearGradient(0, -v.wid / 2 * s, 0, v.wid / 2 * s);
+    bodyGrad.addColorStop(0, v.colorTop);
+    bodyGrad.addColorStop(0.5, v.color);
+    bodyGrad.addColorStop(1, v.colorBottom);
+    ctx.fillStyle = bodyGrad;
+    roundRect(ctx, -v.len / 2 * s, -v.wid / 2 * s, v.len * s, v.wid * s, 8 * z);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#181c24';
+    roundRect(ctx, -v.len * 0.28 * s, -v.wid * 0.36 * s, v.len * 0.42 * s, v.wid * 0.72 * s, 6 * z);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    roundRect(ctx, v.len * 0.2 * s, -v.wid * 0.3 * s, v.len * 0.24 * s, v.wid * 0.6 * s, 4 * z);
+    ctx.fill();
     ctx.restore();
+  }
+
+  private drawF1Body(sim: Simulation, s: number): void {
+    const { ctx } = this;
+    const { state, spec } = sim;
+    const v = spec.visual;
+    const z = this.zoom;
+    const L = v.len * s, W = v.wid * s;
+
+    // 노출 휠 먼저
+    this.drawWheels(spec, s, z, state.steer, true);
+
+    // 프론트 윙 (풀 폭)
+    ctx.fillStyle = v.color;
+    roundRect(ctx, L * 0.40, -W / 2, L * 0.09, W, 2 * z);
+    ctx.fill();
+    // 리어 윙
+    roundRect(ctx, -L * 0.5, -W * 0.38, L * 0.1, W * 0.76, 2 * z);
+    ctx.fill();
+
+    // 모노코크 — 노즈로 갈수록 좁아지는 폴리곤
+    const bw = W * 0.4;     // 콕핏 폭
+    const nw = W * 0.1;     // 노즈 끝 폭
+    const grad = ctx.createLinearGradient(0, -bw, 0, bw);
+    grad.addColorStop(0, v.colorTop);
+    grad.addColorStop(0.5, v.color);
+    grad.addColorStop(1, v.colorBottom);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(L * 0.46, -nw / 2);
+    ctx.lineTo(L * 0.46, nw / 2);
+    ctx.lineTo(L * 0.12, bw / 2);
+    ctx.lineTo(-L * 0.42, bw / 2);
+    ctx.lineTo(-L * 0.42, -bw / 2);
+    ctx.lineTo(L * 0.12, -bw / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // 사이드포드
+    ctx.fillStyle = v.colorBottom;
+    roundRect(ctx, -L * 0.3, -W * 0.34, L * 0.32, W * 0.68, 4 * z);
+    ctx.fill();
+    ctx.fillStyle = grad;
+    roundRect(ctx, -L * 0.3, -bw / 2, L * 0.32, bw, 3 * z);
+    ctx.fill();
+
+    // 콕핏 + 헤일로
+    ctx.fillStyle = '#10141c';
+    roundRect(ctx, -L * 0.1, -bw * 0.35, L * 0.16, bw * 0.7, 3 * z);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200,205,215,0.8)';
+    ctx.lineWidth = 1.6 * z;
+    ctx.beginPath();
+    ctx.arc(-L * 0.02, 0, bw * 0.42, 0, Math.PI * 2);
+    ctx.stroke();
   }
 }
 

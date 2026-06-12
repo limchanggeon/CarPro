@@ -2,7 +2,6 @@
 
 import { useStore } from '../store';
 import { getSimulation } from '../engine/simulation';
-import { SPEC } from '../engine/constants';
 import { useDim } from './useDim';
 
 function tireColor(t: number): string {
@@ -12,10 +11,10 @@ function tireColor(t: number): string {
   return '#e83e3e';
 }
 
-function brakeColor(t: number): string {
+function brakeColor(t: number, fadeStart: number): string {
   if (t < 100) return '#6ea8ff';
-  if (t < 250) return '#3ec88a';
-  if (t < SPEC.brakeFadeStart) return '#e8b53e';
+  if (t < fadeStart * 0.5) return '#3ec88a';
+  if (t < fadeStart) return '#e8b53e';
   return '#e83e3e';
 }
 
@@ -35,6 +34,7 @@ export function SystemsPod() {
   const wF = Math.round(t.tireWearF * 100), wR = Math.round(t.tireWearR * 100);
   const bF = Math.round(t.brakeTempF), bR = Math.round(t.brakeTempR);
   const cF = tireColor(tF), cR = tireColor(tR);
+  const fadeStart = t.brakeFadeStart;
 
   return (
     <div id="systems" className={dim ? 'dimmed' : ''}>
@@ -54,24 +54,24 @@ export function SystemsPod() {
           <rect x="6" y="68" width="9" height="18" rx="3" fill={cR} style={{ filter: `drop-shadow(0 0 4px ${cR})` }} />
           <rect x="45" y="68" width="9" height="18" rx="3" fill={cR} style={{ filter: `drop-shadow(0 0 4px ${cR})` }} />
           {/* 브레이크 디스크 점 */}
-          <circle cx="10.5" cy="23" r="2.4" fill={brakeColor(bF)} />
-          <circle cx="49.5" cy="23" r="2.4" fill={brakeColor(bF)} />
-          <circle cx="10.5" cy="77" r="2.4" fill={brakeColor(bR)} />
-          <circle cx="49.5" cy="77" r="2.4" fill={brakeColor(bR)} />
+          <circle cx="10.5" cy="23" r="2.4" fill={brakeColor(bF, fadeStart)} />
+          <circle cx="49.5" cy="23" r="2.4" fill={brakeColor(bF, fadeStart)} />
+          <circle cx="10.5" cy="77" r="2.4" fill={brakeColor(bR, fadeStart)} />
+          <circle cx="49.5" cy="77" r="2.4" fill={brakeColor(bR, fadeStart)} />
         </svg>
         <div className="sys-stats">
           <div className="sys-axle">
             <span className="ax">F</span>
             <b style={{ color: cF }}>{tF}°</b>
             <span className="wear">{wF}%</span>
-            <b style={{ color: brakeColor(bF) }}>{bF}°</b>
+            <b style={{ color: brakeColor(bF, fadeStart) }}>{bF}°</b>
           </div>
           <div className="sys-cols"><span>TIRE</span><span>WEAR</span><span>BRK</span></div>
           <div className="sys-axle">
             <span className="ax">R</span>
             <b style={{ color: cR }}>{tR}°</b>
             <span className="wear">{wR}%</span>
-            <b style={{ color: brakeColor(bR) }}>{bR}°</b>
+            <b style={{ color: brakeColor(bR, fadeStart) }}>{bR}°</b>
           </div>
         </div>
       </div>

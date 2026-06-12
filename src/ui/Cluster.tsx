@@ -1,14 +1,12 @@
 // 하단 중앙 메인 클러스터 — SVG 원형 RPM 게이지 + 시프트 LED 아크 + 속도/기어
 
 import { useStore } from '../store';
-import { SPEC } from '../engine/constants';
 import { useDim } from './useDim';
 
 const CX = 110, CY = 112;
 const GAUGE_R = 84;
 const LED_R = 101;
 const START_DEG = -130, SWEEP = 260;
-const REDLINE_FRAC = SPEC.redline / SPEC.maxRpm;
 
 function polar(r: number, deg: number): [number, number] {
   const a = (deg - 90) * Math.PI / 180;
@@ -35,11 +33,12 @@ export function Cluster() {
   const ledsOn = useStore((s) => s.telemetry.ledsOn);
   const throttle = useStore((s) => s.telemetry.throttle);
   const brake = useStore((s) => s.telemetry.brake);
+  const redlineFrac = useStore((s) => s.telemetry.redlineFrac);
   const dim = useDim(0.33, 0.67, 0.6, 1);
 
   const fillEnd = START_DEG + SWEEP * Math.max(0.004, rpmFrac);
-  const fillColor = rpmFrac >= REDLINE_FRAC ? '#e83e3e' : rpmFrac > 0.8 ? '#e8b53e' : '#3ec88a';
-  const redlineDeg = START_DEG + SWEEP * REDLINE_FRAC;
+  const fillColor = rpmFrac >= redlineFrac ? '#e83e3e' : rpmFrac > 0.8 ? '#e8b53e' : '#3ec88a';
+  const redlineDeg = START_DEG + SWEEP * redlineFrac;
   const [r1x, r1y] = polar(GAUGE_R - 9, redlineDeg);
   const [r2x, r2y] = polar(GAUGE_R + 9, redlineDeg);
 

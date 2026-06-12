@@ -15,6 +15,7 @@ export function SettingsDrawer() {
       <div id="edge-buttons">
         <button onClick={toggle} title="셋업" className={open ? 'on' : ''}>⚙</button>
         <button onClick={() => useStore.getState().toggleHelp()} title="도움말 (H)">?</button>
+        <button onClick={() => useStore.getState().exitToLobby()} title="로비로 (ESC)">⏏</button>
       </div>
       <div id="settings-drawer" className={open ? 'open' : ''}>
         <h3>SETUP</h3>

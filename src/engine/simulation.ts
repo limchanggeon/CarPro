@@ -1,6 +1,8 @@
-// 시뮬레이션 코어 — 게임 루프, 입력(키보드/게임패드), 랩 타이밍, 파티클, 텔레메트리 publish
+// 시뮬레이션 코어 — 차종/트랙 구성, 게임 루프, 입력, 카운트다운, 랩 타이밍, 파티클
 
-import { CONFIG, SPEC, START_LINE } from './constants';
+import { CONFIG } from './constants';
+import { CarSpec, getCar } from './cars';
+import { TrackDef, getTrack } from './tracks';
 import {
   AidSettings, CarState, DebugState, SimInputs, VisualState,
   createCarState, step,
@@ -39,15 +41,17 @@ const KEY_CODES = [
   'Digit1', 'Digit2', 'Digit3', 'Digit4',
 ] as const;
 
-const WHEEL_OFFSETS = [
-  { x: SPEC.lf, y: -SPEC.track / 2 },   // FL
-  { x: SPEC.lf, y: SPEC.track / 2 },    // FR
-  { x: -SPEC.lr, y: -SPEC.track / 2 },  // RL
-  { x: -SPEC.lr, y: SPEC.track / 2 },   // RR
-];
+function freshLap(): LapState {
+  return {
+    num: 0, startMs: null, current: 0, last: null, best: null,
+    prevX: 0, prevY: 0, ready: false, inited: false, history: [],
+  };
+}
 
 export class Simulation {
-  state: CarState = createCarState(CONFIG.startX, CONFIG.startY, CONFIG.startYaw);
+  spec: CarSpec = getCar('gr86');
+  trackDef: TrackDef = getTrack('inje');
+  state: CarState = createCarState(this.spec, this.trackDef.start.x, this.trackDef.start.y, this.trackDef.start.yaw);
   inputs: SimInputs = { throttle: 0, brake: 0, hand: false, steerCmd: 0, mu: 1.0, maxSteer: 0.5, volume: 0.35 };
   aids: AidSettings = { abs: true, tc: true, tcLevel: 1, esc: true };
   debug: DebugState = { kappaF: 0, kappaR: 0, alphaF: 0, alphaR: 0, slipMagF: 0, slipMagR: 0, wheelspin: false, onTrack: true };
@@ -56,34 +60,42 @@ export class Simulation {
     wheelAngleF: 0, wheelAngleR: 0, camAheadX: 0, camAheadY: 0, shakeImpulse: 0,
     gDispX: 0, gDispY: 0, gTrailX: 0, gTrailY: 0,
   };
-  lap: LapState = {
-    num: 0, startMs: null, current: 0, last: null, best: null,
-    prevX: 0, prevY: 0, ready: false, inited: false, history: [],
-  };
+  lap: LapState = freshLap();
 
   track = new Track();
   audio = new AudioEngine();
   skidSegments: SkidSegment[] = [];
   smokeParticles: SmokeParticle[] = [];
   simTime = 0;
-  carNx = 0.5;          // 차량 스크린 정규화 좌표 (렌더러가 매 프레임 기록)
+  carNx = 0.5;
   carNy = 0.5;
+  countdownEndMs = 0;
 
   private keys: Record<string, boolean> = {};
   private renderer: Renderer | null = null;
   private rafId = 0;
   private lastT = 0;
   private running = false;
-  private lapDirty = true;          // history 배열 publish 최적화
+  private lapDirty = true;
   private historySnapshot: number[] = [];
+  private prevPadLb = false;
+  private prevPadRb = false;
+  private lastWheelPos: Array<{ x: number; y: number } | null> = [null, null, null, null];
 
   constructor() {
     for (const k of KEY_CODES) this.keys[k] = false;
   }
 
-  async loadTrack(url: string): Promise<void> {
-    await this.track.load(url);
+  // 차종/트랙 구성 후 카운트다운과 함께 레이스 시작
+  async configure(carId: string, trackId: string): Promise<void> {
+    this.spec = getCar(carId);
+    this.trackDef = getTrack(trackId);
+    useStore.getState().setTrackReady(false);
+    this.audio.configure(this.spec.sound, this.spec.idleRpm, this.spec.maxRpm);
+    await this.track.load(this.trackDef, import.meta.env.BASE_URL);
+    useStore.getState().setMinimapUrl(this.track.minimapUrl);
     useStore.getState().setTrackReady(true);
+    this.reset();
   }
 
   attach(canvas: HTMLCanvasElement): void {
@@ -111,17 +123,16 @@ export class Simulation {
   }
 
   reset = (): void => {
-    this.state = createCarState(CONFIG.startX, CONFIG.startY, CONFIG.startYaw);
+    const s = this.track.startPos ?? this.trackDef.start;
+    this.state = createCarState(this.spec, s.x, s.y, s.yaw);
     this.visual.pitch = this.visual.pitchRate = this.visual.roll = this.visual.rollRate = 0;
     this.visual.camAheadX = this.visual.camAheadY = this.visual.shakeImpulse = 0;
     this.skidSegments.length = 0;
     this.smokeParticles.length = 0;
     this.lastWheelPos.fill(null);
-    this.lap = {
-      num: 0, startMs: null, current: 0, last: null, best: null,
-      prevX: 0, prevY: 0, ready: false, inited: false, history: [],
-    };
+    this.lap = freshLap();
     this.lapDirty = true;
+    this.countdownEndMs = performance.now() + CONFIG.countdownSec * 1000;
   };
 
   clearSkids = (): void => {
@@ -136,7 +147,11 @@ export class Simulation {
     this.aids.tcLevel = (this.aids.tcLevel + 1) % 4;
   };
 
-  shiftUp = (): void => { if (this.state.gear < 6) this.state.gear++; };
+  maxGear(): number {
+    return this.spec.gears.length - 2;
+  }
+
+  shiftUp = (): void => { if (this.state.gear < this.maxGear()) this.state.gear++; };
   shiftDown = (): void => { if (this.state.gear > -1) this.state.gear--; };
 
   private initAudioOnce = (): void => {
@@ -144,6 +159,7 @@ export class Simulation {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.code === 'Escape') { useStore.getState().exitToLobby(); return; }
     if (e.code === 'BracketRight') this.shiftUp();
     if (e.code === 'BracketLeft') this.shiftDown();
     if (e.code === 'KeyC') this.clearSkids();
@@ -164,6 +180,10 @@ export class Simulation {
     if (Object.prototype.hasOwnProperty.call(this.keys, e.code)) this.keys[e.code] = false;
   };
 
+  private countdownLeft(): number {
+    return (this.countdownEndMs - performance.now()) / 1000;
+  }
+
   private readInputs(): void {
     const k = this.keys;
     let throttle = k.KeyW || k.ArrowUp ? 1 : 0;
@@ -171,7 +191,6 @@ export class Simulation {
     let hand = !!k.Space;
     let steerCmd = k.KeyA || k.ArrowLeft ? -1 : k.KeyD || k.ArrowRight ? 1 : 0;
 
-    // 게임패드 (standard mapping): 좌스틱 X 조향, RT/LT 스로틀/브레이크, A 핸드브레이크
     try {
       const gp = navigator.getGamepads?.()[0];
       if (gp && gp.mapping === 'standard') {
@@ -182,7 +201,6 @@ export class Simulation {
         if (rt > 0.05) throttle = Math.max(throttle, rt);
         if (lt > 0.05) brake = Math.max(brake, lt);
         if (gp.buttons[0]?.pressed) hand = true;
-        // 숄더 버튼 기어 시프트 — 엣지 트리거
         const lb = !!gp.buttons[4]?.pressed, rb = !!gp.buttons[5]?.pressed;
         if (rb && !this.prevPadRb) this.shiftUp();
         if (lb && !this.prevPadLb) this.shiftDown();
@@ -190,6 +208,12 @@ export class Simulation {
         this.prevPadRb = rb;
       }
     } catch { /* 게임패드 미지원 환경 무시 */ }
+
+    // 카운트다운 중 — 출발 잠금 (스로틀로 레브는 가능하되 제동 고정)
+    if (this.countdownLeft() > 0) {
+      brake = 1;
+      hand = true;
+    }
 
     const settings = useStore.getState().settings;
     this.inputs.throttle = throttle;
@@ -200,10 +224,6 @@ export class Simulation {
     this.inputs.maxSteer = settings.maxSteer;
     this.inputs.volume = settings.volume;
   }
-
-  private prevPadLb = false;
-  private prevPadRb = false;
-  private lastWheelPos: Array<{ x: number; y: number } | null> = [null, null, null, null];
 
   private updateLapTiming(): void {
     const lap = this.lap, state = this.state;
@@ -219,10 +239,10 @@ export class Simulation {
       if (lap.startMs !== null) lap.current = (performance.now() - lap.startMs) / 1000;
       return;
     }
-    const lx1 = START_LINE.cx - START_LINE.halfWidth, ly = START_LINE.cy;
-    const lx2 = START_LINE.cx + START_LINE.halfWidth;
-    if (segmentsIntersect(x1, y1, x2, y2, lx1, ly, lx2, ly)) {
-      if (Math.sign(y2 - y1) === START_LINE.validDy) {
+    const sl = this.track.startLine ?? this.trackDef.startLine;
+    if (segmentsIntersect(x1, y1, x2, y2, sl.x1, sl.y1, sl.x2, sl.y2)) {
+      const forward = (x2 - x1) * sl.nx + (y2 - y1) * sl.ny;
+      if (forward > 0) {
         const nowMs = performance.now();
         if (lap.startMs !== null) {
           const t = (nowMs - lap.startMs) / 1000;
@@ -244,13 +264,19 @@ export class Simulation {
   }
 
   private spawnSkidsAndSmoke(dt: number): void {
-    const { state, debug } = this;
+    const { state, debug, spec } = this;
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+    const wheelOffsets = [
+      { x: spec.lf, y: -spec.track / 2 },
+      { x: spec.lf, y: spec.track / 2 },
+      { x: -spec.lr, y: -spec.track / 2 },
+      { x: -spec.lr, y: spec.track / 2 },
+    ];
     const slipMag = [debug.slipMagF, debug.slipMagF, debug.slipMagR, debug.slipMagR];
     const speedMag = Math.hypot(state.vx, state.vy);
 
     for (let i = 0; i < 4; i++) {
-      const off = WHEEL_OFFSETS[i];
+      const off = wheelOffsets[i];
       const wx = state.x + off.x * cy - off.y * sy;
       const wy = state.y + off.x * sy + off.y * cy;
       const slipping = slipMag[i] > 0.18 && speedMag > 0.5;
@@ -304,9 +330,8 @@ export class Simulation {
   }
 
   private publish(): void {
-    const { state, debug, aids, lap, inputs, visual } = this;
+    const { state, debug, aids, lap, inputs, visual, spec } = this;
 
-    // 상태 라벨
     let label = 'CRUISE', cls = '';
     const absAR = Math.abs(debug.alphaR), absAF = Math.abs(debug.alphaF);
     const isSpin = (absAR > 0.7 || absAF > 0.7) && Math.abs(state.yawRate) > 1.5;
@@ -317,7 +342,6 @@ export class Simulation {
     else if (absAR > 0.2) { label = 'DRIFT'; cls = 'drift'; }
     else if (absAF > 0.18 && Math.abs(state.steer) > 0.15) { label = 'UNDERSTEER'; cls = 'under'; }
 
-    // G-미터 표시값 스무딩 (legacy와 동일 계수)
     const gLat = state.ay / 9.81, gLon = state.ax / 9.81;
     const G_SCALE = 38;
     const gMag = Math.hypot(gLat, gLon);
@@ -327,7 +351,10 @@ export class Simulation {
     visual.gTrailX += (visual.gDispX - visual.gTrailX) * 0.08;
     visual.gTrailY += (visual.gDispY - visual.gTrailY) * 0.08;
 
-    const revFrac = (state.engineRpm - 3000) / (7200 - 3000);
+    // 레브 LED — 차종 RPM 범위에 맞게 정규화
+    const ledLo = spec.maxRpm * 0.42;
+    const ledHi = spec.maxRpm * 0.97;
+    const revFrac = (state.engineRpm - ledLo) / (ledHi - ledLo);
     const speed = Math.hypot(state.vx, state.vy);
 
     if (this.lapDirty) {
@@ -335,12 +362,17 @@ export class Simulation {
       this.lapDirty = false;
     }
 
+    const gearLabel = spec.ev
+      ? (state.gear === -1 ? 'R' : state.gear === 0 ? 'N' : 'D')
+      : (state.gear === -1 ? 'R' : state.gear === 0 ? 'N' : String(state.gear));
+
     const t: Telemetry = {
       speedKmh: Math.abs(state.vx * 3.6),
-      gearLabel: state.gear === -1 ? 'R' : state.gear === 0 ? 'N' : String(state.gear),
+      gearLabel,
       rpm: Math.round(state.engineRpm),
-      rpmFrac: Math.min(1, state.engineRpm / SPEC.maxRpm),
-      shiftLight: state.engineRpm >= SPEC.redline,
+      rpmFrac: Math.min(1, state.engineRpm / spec.maxRpm),
+      redlineFrac: spec.redline / spec.maxRpm,
+      shiftLight: state.engineRpm >= spec.redline,
       revCut: state.revCut,
       ledsOn: Math.max(0, Math.min(12, Math.floor(revFrac * 12 + 0.5))),
       alphaF: debug.alphaF,
@@ -363,6 +395,7 @@ export class Simulation {
       tireWearR: state.tireWearR,
       brakeTempF: state.brakeTempF,
       brakeTempR: state.brakeTempR,
+      brakeFadeStart: spec.brakeFadeStart,
       absOn: aids.abs,
       tcOn: aids.tc,
       escOn: aids.esc,
@@ -382,6 +415,7 @@ export class Simulation {
       yawDeg: state.yaw * 180 / Math.PI,
       carNx: Math.round(this.carNx * 50) / 50,
       carNy: Math.round(this.carNy * 50) / 50,
+      countdown: Math.round(Math.max(-1, this.countdownLeft()) * 10) / 10,
     };
     useStore.getState().setTelemetry(t);
   }
@@ -395,7 +429,7 @@ export class Simulation {
     const dt = rawDt / CONFIG.substeps;
     const isOn = (x: number, y: number) => this.track.isOnTrack(x, y);
     for (let i = 0; i < CONFIG.substeps; i++) {
-      step(dt, this.state, this.inputs, this.aids, this.debug, this.visual, isOn);
+      step(dt, this.spec, this.state, this.inputs, this.aids, this.debug, this.visual, isOn);
     }
 
     this.simTime += rawDt;
