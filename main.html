@@ -1,0 +1,2821 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>GR86 SIM v3 — FULL PHYSICS</title>
+  <style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --redline: 7000;
+  --maxrpm: 7500;
+
+  /* Modern Telemetry palette */
+  --bg-0: #07090b;
+  --bg-1: #0b0e11;
+  --bg-2: #11151a;
+  --line: rgba(180, 195, 210, 0.10);
+  --line-strong: rgba(180, 195, 210, 0.22);
+  --ink-0: #f2f4f7;
+  --ink-1: #c8ced6;
+  --ink-2: #8b939d;
+  --ink-3: #525a64;
+
+  --accent: #ff8a1e;       /* primary data accent (amber) */
+  --accent-dim: rgba(255, 138, 30, 0.55);
+  --good: #4ade80;         /* green */
+  --good-dim: rgba(74, 222, 128, 0.55);
+  --warn: #facc15;
+  --bad:  #ef4444;
+  --info: #38bdf8;
+  --magenta: #c084fc;
+
+  --glass: rgba(10, 12, 14, 0.72);
+  --glass-2: rgba(14, 17, 21, 0.78);
+  --hair: 1px solid var(--line);
+  --hair-strong: 1px solid var(--line-strong);
+
+  --mono: 'JetBrains Mono', 'IBM Plex Mono', 'Roboto Mono', ui-monospace, Menlo, monospace;
+  --ui:   'Inter', 'JetBrains Mono', system-ui, sans-serif;
+
+  --glow-amber: 0 0 14px rgba(255, 138, 30, 0.45), 0 0 2px rgba(255, 138, 30, 0.9);
+  --glow-green: 0 0 12px rgba(74, 222, 128, 0.40), 0 0 2px rgba(74, 222, 128, 0.9);
+  --glow-red:   0 0 14px rgba(239, 68, 68, 0.55), 0 0 2px rgba(239, 68, 68, 0.95);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-0);
+  color: var(--ink-0);
+  font-family: var(--mono);
+  font-feature-settings: 'tnum' 1, 'ss01' 1, 'cv11' 1;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+/* ───── VIEWPORT / WORLD ───── */
+#viewport {
+  position: relative; width: 100%; flex: 1 1 auto; overflow: hidden;
+  background:
+    radial-gradient(1200px 800px at 50% 40%, rgba(255,138,30,0.04), transparent 60%),
+    linear-gradient(180deg, #0b0d10 0%, #07090b 100%);
+}
+/* subtle telemetry grid overlay on viewport */
+#viewport::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(180,195,210,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(180,195,210,0.035) 1px, transparent 1px);
+  background-size: 80px 80px;
+  mix-blend-mode: lighten;
+  z-index: 2;
+}
+/* vignette */
+#viewport::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%);
+  z-index: 3;
+}
+
+#world {
+  position: absolute; width: 32000px; height: 38000px; left: 0; top: 0;
+  background:
+    repeating-linear-gradient(45deg,  transparent 0 22px, rgba(0,0,0,0.10) 22px 24px),
+    repeating-linear-gradient(-45deg, transparent 0 22px, rgba(0,0,0,0.10) 22px 24px),
+    #1f2c18;
+  transform: translate(var(--world-x,0px), var(--world-y,0px));
+  will-change: transform;
+}
+
+#skidCanvas, #smokeCanvas { position: absolute; left: 0; top: 0; pointer-events: none; }
+#skidCanvas  { z-index: 50; }
+#smokeCanvas { z-index: 51; }
+
+/* ───── TRACK ───── */
+#trackImg {
+  position: absolute; left: -10000px; top: -10000px;
+  width: 100px; height: 100px;
+  opacity: 0; pointer-events: none;
+}
+#trackSurface {
+  position: absolute; left: 1000px; top: 1000px;
+  z-index: 1; pointer-events: none;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* START / FINISH */
+#startLine {
+  position: absolute;
+  width: 1200px; height: 50px;
+  margin-left: -600px; margin-top: -25px;
+  background:
+    repeating-linear-gradient(90deg,
+      #fff 0 25px, #0a0a0a 25px 50px,
+      #0a0a0a 50px 75px, #fff 75px 100px);
+  background-size: 100px 50px;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow:
+    0 0 12px rgba(255,255,255,0.35),
+    0 0 28px rgba(255,138,30,0.18);
+}
+#startLine::before {
+  content: 'START / FINISH';
+  position: absolute;
+  top: -34px; left: 50%; transform: translateX(-50%);
+  font-family: var(--mono);
+  font: 700 22px var(--mono);
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(255,138,30,0.7), 0 2px 4px #000;
+  letter-spacing: 8px; white-space: nowrap;
+}
+
+/* ───── CAR ───── */
+#car {
+  position: absolute; width: 36px; height: 86px;
+  transform-origin: center center;
+  transform: translate(calc(var(--car-x,0px) - 18px), calc(var(--car-y,0px) - 43px)) rotate(var(--yaw-deg,90deg));
+  will-change: transform; z-index: 10;
+}
+#car-body {
+  position: absolute; inset: 6px 4px 6px 4px;
+  background:
+    linear-gradient(180deg, #1a1d22 0%, #0d0f12 55%, #060709 100%),
+    linear-gradient(180deg, #ff6a3d, #b03020 70%, #5a1410);
+  background-blend-mode: normal;
+  border: 1px solid #000;
+  border-radius: 5px;
+  box-shadow:
+    calc(var(--shadow-x,0px)) calc(var(--shadow-y,14px)) 22px rgba(0,0,0,0.7),
+    inset 0 calc(var(--roll-shift,0px)) 12px rgba(0,0,0,0.35),
+    inset 0 0 0 1px rgba(255,138,30,0.25);
+  transform: skewY(var(--roll-skew,0deg)) scaleY(var(--pitch-stretch,1));
+  transition: none;
+}
+#car-body::before {
+  content: ''; position: absolute; top: 25px; left: 6px; right: 6px; height: 36px;
+  background: linear-gradient(180deg, #15181d 0%, #050608 60%, #15181d 100%);
+  border-radius: 3px; border: 1px solid #000;
+  box-shadow: inset 0 0 6px rgba(0,0,0,0.8);
+}
+#car-body::after {
+  content: ''; position: absolute; top: 5px; left: 6px; right: 6px; height: 3px;
+  background: linear-gradient(90deg, rgba(255,248,200,0.6), #fff5cc, rgba(255,248,200,0.6));
+  border-radius: 1px; opacity: 0.85;
+  box-shadow: 0 0 6px rgba(255,240,180,0.6);
+}
+
+#brake-lights {
+  position: absolute; bottom: 7px; left: 7px; right: 7px; height: 5px;
+  background: linear-gradient(90deg,
+    rgba(80,0,0,0.55),
+    rgba(255,40,20, calc(var(--brake-light,0)*1)),
+    rgba(80,0,0,0.55));
+  border-radius: 1px;
+  box-shadow: 0 0 calc(var(--brake-glow,0)*1px) rgba(255,60,30,0.95);
+  z-index: 2;
+}
+
+.wheel {
+  position: absolute; width: 11px; height: 22px;
+  background: linear-gradient(180deg, #111 0%, #050505 100%);
+  border: 1px solid #000;
+  border-radius: 2px; overflow: hidden;
+  box-shadow: 0 0 3px rgba(0,0,0,0.7), inset 0 0 4px rgba(255,255,255,0.05);
+  z-index: 0;
+}
+.wheel::before {
+  content: ''; position: absolute; top: 50%; left: 1px; right: 1px; height: 2px;
+  background: linear-gradient(90deg, #444, #aaa, #444);
+  margin-top: -1px;
+  transform: rotate(var(--wheel-angle,0rad));
+  transform-origin: center;
+}
+.wheel.fl { top: 8px;    left: -6px;  transform: rotate(var(--steer,0rad)); }
+.wheel.fr { top: 8px;    right: -6px; transform: rotate(var(--steer,0rad)); }
+.wheel.rl { bottom: 10px; left: -6px; }
+.wheel.rr { bottom: 10px; right: -6px; }
+.wheel.rl::before, .wheel.rr::before { transform: rotate(var(--wheel-angle-r,0rad)); }
+.wheel.fl::before, .wheel.fr::before { transform: rotate(var(--wheel-angle-f,0rad)); }
+
+/* ───── HUD ROOT ───── */
+#hud {
+  position: absolute; inset: 0; pointer-events: none; z-index: 100;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
+/* shared "panel" look via attribute-less utility — applied per panel below */
+
+/* ───── SPEED / GEAR / RPM ───── */
+#speed-block,
+#gear-block,
+#rpm-tach {
+  background: var(--glass);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: var(--hair);
+  border-radius: 4px;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 0 0 1px rgba(0,0,0,0.6),
+    0 12px 30px rgba(0,0,0,0.45);
+}
+
+#speed-block {
+  position: absolute; top: 18px; left: 18px;
+  padding: 10px 14px 8px;
+  min-width: 150px;
+}
+#speed-block .label {
+  font: 600 9px var(--mono);
+  color: var(--ink-2);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 6px;
+}
+#speed-block .label::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: var(--glow-amber);
+}
+#speed-block .value {
+  font: 700 40px/0.95 var(--mono);
+  color: var(--ink-0);
+  letter-spacing: -1px;
+  margin-top: 2px;
+  text-shadow: 0 0 18px rgba(255,138,30,0.15);
+}
+#speed-block .unit {
+  font: 500 10px var(--mono);
+  color: var(--ink-2);
+  letter-spacing: 2px;
+  margin-left: 4px;
+}
+
+#gear-block {
+  position: absolute; top: 18px; left: 190px;
+  padding: 10px 16px 8px;
+  text-align: center;
+  min-width: 70px;
+}
+#gear-block .label {
+  font: 600 9px var(--mono);
+  color: var(--ink-2);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+#gear-block .gear {
+  font: 800 42px/1 var(--mono);
+  color: var(--ink-0);
+  margin-top: 2px;
+  text-shadow: 0 0 18px rgba(255,138,30,0.25);
+}
+
+/* RPM tach */
+#rpm-tach {
+  position: absolute; top: 18px; left: 290px;
+  padding: 9px 14px 11px;
+  width: 400px;
+}
+#rpm-tach .label {
+  font: 600 9px var(--mono);
+  color: var(--ink-2);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  display: flex; align-items: baseline; gap: 10px;
+}
+#rpm-tach .rpm-text {
+  font: 700 14px var(--mono);
+  color: var(--ink-0);
+  letter-spacing: 0;
+  margin-left: auto;
+}
+#rpm-tach .rpm-text::after {
+  content: ' RPM';
+  font: 500 9px var(--mono);
+  color: var(--ink-3);
+  letter-spacing: 2px;
+}
+
+.tach-track {
+  height: 14px;
+  background:
+    repeating-linear-gradient(90deg,
+      transparent 0 calc(10% - 1px),
+      rgba(180,195,210,0.12) calc(10% - 1px) 10%),
+    linear-gradient(180deg, #07090b, #0d1115);
+  border: var(--hair-strong);
+  border-radius: 2px;
+  position: relative;
+  margin-top: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
+}
+.tach-track .fill {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  width: var(--rpm-pct, 10%);
+  background:
+    linear-gradient(90deg,
+      #4ade80 0%,
+      #a3e635 35%,
+      #facc15 65%,
+      #fb923c 85%,
+      #ef4444 100%);
+  box-shadow:
+    0 0 8px rgba(255,138,30,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.15);
+  transition: width 0.06s linear;
+}
+.tach-track .redline {
+  position: absolute; top: 0; bottom: 0; left: 93%; width: 2px;
+  background: var(--bad);
+  box-shadow: 0 0 8px rgba(239,68,68,0.9);
+}
+
+#shift-light {
+  position: absolute; top: -3px; right: 10px;
+  width: 10px; height: 10px;
+  background: #2a0e0a; border-radius: 50%;
+  border: 1px solid rgba(239,68,68,0.4);
+  box-shadow: inset 0 0 3px rgba(0,0,0,0.7);
+}
+#shift-light.on {
+  background: var(--bad);
+  border-color: #fff;
+  box-shadow:
+    0 0 14px rgba(239,68,68,0.95),
+    0 0 30px rgba(239,68,68,0.6),
+    inset 0 0 4px #fff;
+  animation: ledPulse 0.12s infinite alternate;
+}
+@keyframes ledPulse {
+  from { opacity: 1; filter: brightness(1.2); }
+  to   { opacity: 0.5; filter: brightness(0.7); }
+}
+
+/* ───── STATUS LABEL ───── */
+#status-label {
+  position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
+  padding: 8px 18px 8px 30px;
+  border-radius: 2px;
+  font: 600 11px var(--mono);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: var(--glass);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  color: var(--ink-2);
+  border: var(--hair);
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.6),
+    0 10px 28px rgba(0,0,0,0.45);
+  transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+#status-label::before {
+  content: '';
+  position: absolute;
+  left: 14px; top: 50%; transform: translateY(-50%);
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ink-3);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.1);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+#status-label.drift {
+  color: var(--good);
+  border-color: var(--good-dim);
+}
+#status-label.drift::before {
+  background: var(--good); box-shadow: var(--glow-green);
+}
+#status-label.under {
+  color: var(--info);
+  border-color: rgba(56,189,248,0.5);
+}
+#status-label.under::before {
+  background: var(--info);
+  box-shadow: 0 0 12px rgba(56,189,248,0.65), 0 0 2px #fff;
+}
+#status-label.spin {
+  color: var(--bad);
+  border-color: rgba(239,68,68,0.7);
+  animation: spinPulse 0.35s infinite alternate;
+}
+#status-label.spin::before {
+  background: var(--bad); box-shadow: var(--glow-red);
+}
+@keyframes spinPulse {
+  from { box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 24px rgba(239,68,68,0.45), 0 10px 28px rgba(0,0,0,0.45); }
+  to   { box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 8px rgba(239,68,68,0.15), 0 10px 28px rgba(0,0,0,0.45); }
+}
+#status-label.wspin {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+#status-label.wspin::before {
+  background: var(--accent); box-shadow: var(--glow-amber);
+}
+#status-label.power {
+  color: var(--magenta);
+  border-color: rgba(192,132,252,0.6);
+}
+#status-label.power::before {
+  background: var(--magenta);
+  box-shadow: 0 0 12px rgba(192,132,252,0.65), 0 0 2px #fff;
+}
+
+/* ───── SLIP INFO ───── */
+#slip-info {
+  position: absolute; top: 92px; left: 18px;
+  background: var(--glass);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: var(--hair);
+  padding: 5px 10px;
+  border-radius: 3px;
+  font: 500 10px var(--mono);
+  color: var(--ink-2);
+  letter-spacing: 1.5px;
+  line-height: 1.5;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+}
+#slip-info span {
+  color: var(--ink-0);
+  font-weight: 600;
+}
+
+/* ───── LAP HUD ───── */
+#lap-hud {
+  position: absolute; top: 110px; left: 50%; transform: translateX(-50%);
+  background: var(--glass);
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  border: var(--hair);
+  border-radius: 4px;
+  padding: 10px 22px 11px;
+  z-index: 100;
+  font-family: var(--mono);
+  min-width: 420px;
+  display: grid;
+  grid-template-columns: 0.7fr 1.3fr 1fr;
+  gap: 8px 22px;
+  text-align: center;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 0 0 1px rgba(0,0,0,0.6),
+    0 14px 36px rgba(0,0,0,0.5);
+}
+#lap-hud::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0,
+    var(--accent-dim) 20%,
+    var(--accent) 50%,
+    var(--accent-dim) 80%,
+    transparent 100%);
+  opacity: 0.7;
+}
+#lap-hud .label {
+  font: 600 8px var(--mono);
+  color: var(--ink-3);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+#lap-hud .value {
+  font: 700 22px/1 var(--mono);
+  color: var(--ink-0);
+  margin-top: 4px;
+  letter-spacing: -0.5px;
+}
+#lap-hud .value.green {
+  color: var(--good);
+  text-shadow: 0 0 10px rgba(74,222,128,0.35);
+}
+#lap-hud .value.red {
+  color: var(--bad);
+  text-shadow: 0 0 10px rgba(239,68,68,0.4);
+}
+#lap-hud .full {
+  grid-column: 1 / -1;
+}
+#lap-hud.hidden { display: none; }
+
+/* ───── G-FORCE 미터 ───── */
+#g-meter {
+  position: absolute; bottom: 28px; left: 24px;
+  width: 116px; height: 116px;
+  background: var(--glass);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: var(--hair); border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 12px 30px rgba(0,0,0,0.45);
+  z-index: 100;
+}
+#g-meter::before, #g-meter::after {
+  content: ''; position: absolute; border-radius: 50%;
+  border: 1px solid rgba(180,195,210,0.14);
+  pointer-events: none;
+}
+#g-meter::before { inset: 18%; }   /* 0.5g ring */
+#g-meter::after  { inset: 38%; }   /* 중심 가이드 */
+#g-meter .g-cross-h, #g-meter .g-cross-v {
+  position: absolute; background: rgba(180,195,210,0.10);
+  pointer-events: none;
+}
+#g-meter .g-cross-h { left: 8%; right: 8%; top: 50%; height: 1px; }
+#g-meter .g-cross-v { top: 8%; bottom: 8%; left: 50%; width: 1px; }
+#g-dot {
+  position: absolute; left: 50%; top: 50%;
+  width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffd9a0, var(--accent) 60%);
+  box-shadow: 0 0 10px rgba(255,138,30,0.8), 0 0 3px #fff;
+  transform: translate(var(--g-x, 0px), var(--g-y, 0px));
+  will-change: transform;
+}
+#g-meter .g-trail {
+  position: absolute; left: 50%; top: 50%;
+  width: 6px; height: 6px; margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255,138,30,0.25);
+  transform: translate(var(--gt-x, 0px), var(--gt-y, 0px));
+}
+#g-meter .g-readout {
+  position: absolute; bottom: 9px; left: 0; right: 0;
+  text-align: center;
+  font: 700 11px var(--mono);
+  color: var(--ink-1);
+  text-shadow: 0 0 6px rgba(255,138,30,0.35);
+  pointer-events: none;
+}
+#g-meter .g-title {
+  position: absolute; top: 9px; left: 0; right: 0;
+  text-align: center;
+  font: 600 8px var(--mono);
+  letter-spacing: 3px; color: var(--ink-3);
+  pointer-events: none;
+}
+
+/* ───── F1 스타일 레브 LED 스트립 ───── */
+#rev-strip {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 5px;
+  background: var(--glass);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: var(--hair); border-radius: 14px;
+  padding: 7px 14px;
+  z-index: 99;
+}
+#rev-strip .led {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #1a1d21;
+  border: 1px solid rgba(180,195,210,0.12);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.7);
+  transition: background 0.04s, box-shadow 0.04s;
+}
+#rev-strip .led.g.on { background: #36e06b; box-shadow: 0 0 9px rgba(54,224,107,0.8), inset 0 0 3px rgba(255,255,255,0.4); }
+#rev-strip .led.a.on { background: #ffb020; box-shadow: 0 0 9px rgba(255,176,32,0.85), inset 0 0 3px rgba(255,255,255,0.4); }
+#rev-strip .led.r.on { background: #ff3030; box-shadow: 0 0 10px rgba(255,48,48,0.9), inset 0 0 3px rgba(255,255,255,0.4); }
+#rev-strip.limiter .led { background: #4d8dff !important; box-shadow: 0 0 12px rgba(77,141,255,0.95) !important; animation: limiterFlash 0.1s infinite alternate; }
+@keyframes limiterFlash { from { opacity: 1; } to { opacity: 0.25; } }
+
+/* ───── 기어 시프트 플래시 ───── */
+@keyframes gearFlash {
+  0%   { transform: scale(1.35); color: var(--accent); text-shadow: 0 0 24px rgba(255,138,30,0.9); }
+  100% { transform: scale(1);    color: var(--ink-0); }
+}
+#gear-block .gear.flash { animation: gearFlash 0.22s ease-out; }
+
+/* ───── 비네트: 정적 + 속도 반응형 (라인 82 정의 대체) ───── */
+#viewport::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 46%,
+      transparent 55%,
+      rgba(0,0,0, calc(var(--speed-fx, 0) * 0.42)) 100%),
+    radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%);
+}
+
+/* ───── HUD 등장 애니메이션 ───── */
+@keyframes hudIn {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes hudInUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+#speed-block    { animation: hudIn 0.5s 0.05s ease-out backwards; }
+#gear-block     { animation: hudIn 0.5s 0.12s ease-out backwards; }
+#rpm-tach       { animation: hudIn 0.5s 0.19s ease-out backwards; }
+#rev-strip      { animation: hudIn 0.5s 0.26s ease-out backwards; }
+#lap-hud        { animation: hudIn 0.5s 0.33s ease-out backwards; }
+#sim-panel      { animation: hudIn 0.5s 0.40s ease-out backwards; }
+#help-overlay   { animation: hudIn 0.5s 0.47s ease-out backwards; }
+#minimap        { animation: hudInUp 0.5s 0.54s ease-out backwards; }
+#g-meter        { animation: hudInUp 0.5s 0.61s ease-out backwards; }
+#status-label   { animation: hudInUp 0.5s 0.68s ease-out backwards; }
+#lapClose {
+  position: absolute; top: 4px; right: 6px;
+  width: 18px; height: 18px;
+  padding: 0; margin: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink-2);
+  font: 600 12px var(--mono);
+  cursor: pointer;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  pointer-events: auto;
+}
+#lapClose:hover {
+  background: rgba(239,68,68,0.18);
+  color: var(--bad);
+  border-color: var(--bad);
+}
+#lapShow {
+  position: absolute; top: 110px; left: 50%; transform: translateX(-50%);
+  background: var(--glass);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: var(--hair);
+  border-radius: 4px;
+  padding: 4px 12px;
+  z-index: 100;
+  color: var(--ink-2);
+  font: 600 9px var(--mono);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  pointer-events: auto;
+  display: none;
+}
+#lapShow.shown { display: block; }
+#lapShow:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+#lap-hud .big {
+  /* JDM 흡수: 큰 수치에 7-segment 호박 글로우 한 단계 */
+  font: 800 34px/1 var(--mono);
+  color: var(--ink-0);
+  letter-spacing: -1px;
+  text-shadow:
+    0 0 4px rgba(255,138,30,0.55),
+    0 0 14px rgba(255,138,30,0.22);
+}
+#speed-block .value {
+  text-shadow:
+    0 0 4px rgba(255,138,30,0.50),
+    0 0 16px rgba(255,138,30,0.18);
+}
+
+/* the LAST/Δ row — override inline style with subtle telemetry border */
+#lap-hud .full[style] {
+  border-top: 1px solid rgba(255,138,30,0.18) !important;
+  padding-top: 7px !important;
+  font: 600 11px var(--mono);
+  color: var(--ink-1);
+}
+#lap-hud .full[style] .label {
+  margin-right: 6px;
+}
+#lap-hud .full[style] span[id] {
+  color: var(--ink-0) !important;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* ───── MINIMAP ───── */
+#minimap {
+  position: absolute; bottom: 28px; right: 28px;
+  width: 210px; height: 250px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(74,222,128,0.04), transparent 70%),
+    var(--glass);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: var(--hair);
+  border-radius: 4px;
+  z-index: 100;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 0 0 1px rgba(0,0,0,0.6),
+    0 16px 40px rgba(0,0,0,0.55);
+}
+#minimap::before {
+  /* scanline overlay (radar feel) */
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    repeating-linear-gradient(0deg,
+      rgba(255,255,255,0.025) 0 1px,
+      transparent 1px 3px);
+  pointer-events: none;
+  z-index: 3;
+}
+#minimap::after {
+  content: '';
+  position: absolute; inset: 0;
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.7);
+  pointer-events: none;
+  z-index: 4;
+  /* JDM 흡수: 시안 동심원 레이더 그리드 */
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 28%, rgba(56,189,248,0.06) 28% 28.5%, transparent 28.5%),
+    radial-gradient(circle at 50% 50%, transparent 0 56%, rgba(56,189,248,0.06) 56% 56.5%, transparent 56.5%),
+    radial-gradient(circle at 50% 50%, transparent 0 84%, rgba(56,189,248,0.06) 84% 84.5%, transparent 84.5%),
+    linear-gradient(0deg,   transparent 49.7%, rgba(56,189,248,0.05) 50% 50.3%, transparent 50.3%),
+    linear-gradient(90deg,  transparent 49.7%, rgba(56,189,248,0.05) 50% 50.3%, transparent 50.3%);
+}
+#minimap img {
+  position: absolute; left: 0; top: 0;
+  width: 210px; height: auto;
+  filter: invert(1) contrast(1.5) brightness(0.85) hue-rotate(180deg);
+  mix-blend-mode: lighten;
+  opacity: 0.55;
+  pointer-events: none; user-select: none;
+}
+#minimap-car {
+  /* JDM 흡수: GR86 라이트닝 레드 그라데이션 차량 아이콘 */
+  position: absolute;
+  width: 0; height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 11px solid #ff2a3a;
+  margin-left: -6px; margin-top: -6px;
+  transform-origin: center 7px;
+  transform: rotate(var(--mm-rot, 0deg));
+  filter: drop-shadow(0 0 5px rgba(255,42,58,0.85)) drop-shadow(0 0 2px #fff);
+  pointer-events: none;
+  z-index: 5;
+}
+#minimap-label {
+  position: absolute; top: 6px; left: 8px;
+  font: 600 9px var(--mono);
+  color: var(--accent);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 6;
+  text-shadow: 0 0 8px rgba(255,138,30,0.45);
+}
+#minimap-label::before {
+  content: '\25C6\00a0';
+  color: var(--accent);
+  font-size: 8px;
+}
+
+/* ───── HELP OVERLAY ───── */
+#help-overlay {
+  position: absolute; top: 18px; right: 250px;
+  background: var(--glass);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: var(--hair);
+  border-radius: 4px;
+  padding: 9px 12px;
+  font: 500 10px var(--mono);
+  color: var(--ink-1);
+  line-height: 1.75;
+  max-width: 290px;
+  letter-spacing: 0.5px;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 0 0 1px rgba(0,0,0,0.6),
+    0 12px 30px rgba(0,0,0,0.45);
+}
+#help-overlay b {
+  color: var(--accent);
+  font: 700 10px var(--mono);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  display: inline-block;
+  padding-bottom: 4px;
+}
+#help-overlay kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  background: linear-gradient(180deg, #1a1f25, #0d1014);
+  border: 1px solid var(--line-strong);
+  border-bottom-color: rgba(0,0,0,0.7);
+  border-radius: 3px;
+  font: 600 9px var(--mono);
+  color: var(--ink-0);
+  letter-spacing: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    0 1px 0 rgba(0,0,0,0.6);
+  min-width: 14px;
+  text-align: center;
+}
+
+/* ───── SIM PANEL (AIDS / TIRES / BRAKES) ───── */
+#sim-panel {
+  position: absolute; top: 18px; right: 18px;
+  background: var(--glass);
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  border: var(--hair);
+  border-radius: 4px;
+  padding: 11px 13px 12px;
+  z-index: 100;
+  min-width: 220px;
+  font: 500 11px var(--mono);
+  color: var(--ink-1);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 0 0 1px rgba(0,0,0,0.6),
+    0 14px 36px rgba(0,0,0,0.5);
+}
+#sim-panel h4 {
+  margin: 0 0 6px;
+  color: var(--ink-3);
+  font: 700 9px var(--mono);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 8px;
+}
+#sim-panel h4::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line-strong), transparent);
+}
+#sim-panel .section {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(180,195,210,0.08);
+}
+#sim-panel .section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+#sim-panel .row {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px;
+  color: var(--ink-1);
+  line-height: 1.5;
+  font: 500 11px var(--mono);
+}
+#sim-panel .row > span:first-child {
+  color: var(--ink-3);
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+
+/* AID indicators — LED dot + label */
+.aid {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 7px;
+  border-radius: 2px;
+  background: rgba(20,24,30,0.6);
+  border: 1px solid rgba(180,195,210,0.10);
+  color: var(--ink-3);
+  font: 700 9px var(--mono);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  position: relative;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.aid::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  box-shadow: inset 0 0 2px rgba(0,0,0,0.6);
+  flex: 0 0 6px;
+}
+.aid.on {
+  color: var(--good);
+  background: rgba(74,222,128,0.06);
+  border-color: rgba(74,222,128,0.35);
+}
+.aid.on::before {
+  background: var(--good);
+  box-shadow: var(--glow-green);
+}
+.aid.active {
+  color: var(--accent);
+  background: rgba(255,138,30,0.08);
+  border-color: rgba(255,138,30,0.6);
+  animation: aidFlash 0.18s infinite alternate;
+}
+.aid.active::before {
+  background: var(--accent);
+  box-shadow: var(--glow-amber);
+}
+@keyframes aidFlash {
+  from { background: rgba(255,138,30,0.08); }
+  to   { background: rgba(255,138,30,0.22); }
+}
+
+/* TIRE / BRAKE BARS */
+.tbar {
+  flex: 1;
+  height: 5px;
+  background:
+    repeating-linear-gradient(90deg,
+      transparent 0 calc(10% - 1px),
+      rgba(180,195,210,0.10) calc(10% - 1px) 10%),
+    #07090b;
+  border: 1px solid rgba(180,195,210,0.12);
+  border-radius: 1px;
+  position: relative;
+  margin: 4px 0 2px;
+  overflow: hidden;
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.7);
+}
+.tbar > span {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  background: linear-gradient(90deg,
+    #38bdf8 0%,
+    #4ade80 35%,
+    #facc15 70%,
+    #ef4444 100%);
+  box-shadow:
+    0 0 6px rgba(255,138,30,0.25),
+    inset 0 1px 0 rgba(255,255,255,0.15);
+  transition: width 0.18s linear;
+}
+.tbar.wear > span {
+  background: linear-gradient(90deg,
+    #4ade80 0 50%,
+    #facc15 50% 80%,
+    #ef4444 80%);
+}
+
+/* TEMP color states */
+.temp {
+  font: 700 11px var(--mono);
+  letter-spacing: 0;
+}
+.temp.cold { color: #6fb6ff; }
+.temp.ok   { color: var(--good); }
+.temp.warm { color: var(--warn); }
+.temp.hot  { color: var(--bad); text-shadow: 0 0 8px rgba(239,68,68,0.4); }
+
+/* ───── DASHBOARD ───── */
+#dashboard {
+  flex: 0 0 auto;
+  background:
+    linear-gradient(180deg, #0c0f13 0%, #07090b 100%);
+  padding: 10px 22px;
+  display: flex;
+  gap: 28px;
+  border-top: 1px solid rgba(255,138,30,0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255,138,30,0.08),
+    0 -8px 24px rgba(0,0,0,0.5);
+  align-items: center;
+  font: 500 12px var(--mono);
+  position: relative;
+}
+#dashboard::before {
+  /* glowing accent line */
+  content: '';
+  position: absolute; top: -1px; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0,
+    rgba(255,138,30,0.0) 5%,
+    rgba(255,138,30,0.6) 30%,
+    rgba(255,138,30,0.6) 70%,
+    rgba(255,138,30,0.0) 95%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+#dashboard label {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  font: 600 9px var(--mono);
+  color: var(--ink-3);
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+}
+
+#dashboard input[type=range] {
+  width: 170px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background:
+    linear-gradient(90deg, var(--accent) 0%, var(--accent) 50%, rgba(180,195,210,0.15) 50%, rgba(180,195,210,0.15) 100%);
+  background: linear-gradient(90deg, rgba(255,138,30,0.5), rgba(180,195,210,0.15));
+  border: 1px solid rgba(180,195,210,0.15);
+  border-radius: 1px;
+  outline: none;
+  cursor: pointer;
+}
+#dashboard input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px; height: 16px;
+  background: linear-gradient(180deg, #2a2f36, #11151a);
+  border: 1px solid var(--accent);
+  border-radius: 1px;
+  cursor: pointer;
+  box-shadow:
+    0 0 8px rgba(255,138,30,0.6),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+}
+#dashboard input[type=range]::-moz-range-thumb {
+  width: 12px; height: 16px;
+  background: linear-gradient(180deg, #2a2f36, #11151a);
+  border: 1px solid var(--accent);
+  border-radius: 1px;
+  cursor: pointer;
+  box-shadow:
+    0 0 8px rgba(255,138,30,0.6),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+#dashboard button {
+  background: linear-gradient(180deg, #1a1f25, #0d1014);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  padding: 7px 16px;
+  border-radius: 2px;
+  cursor: pointer;
+  font: 700 10px var(--mono);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, box-shadow 0.12s;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 1px 0 rgba(0,0,0,0.5);
+}
+#dashboard button:hover {
+  background: linear-gradient(180deg, #221820, #110a0c);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    0 0 14px rgba(255,138,30,0.45);
+}
+#dashboard button:active {
+  background: var(--accent);
+  color: #0a0a0a;
+}
+  </style>
+</head>
+<body>
+
+<div id="viewport">
+  <canvas id="skidCanvas"></canvas>
+  <canvas id="smokeCanvas"></canvas>
+  <div id="world">
+    <img id="trackImg" src="map.png" alt="" crossorigin="anonymous">
+    <canvas id="trackSurface"></canvas>
+    <div id="startLine"></div>
+    <div id="car">
+      <div id="car-body"></div>
+      <div id="brake-lights"></div>
+      <div class="wheel fl"></div><div class="wheel fr"></div>
+      <div class="wheel rl"></div><div class="wheel rr"></div>
+    </div>
+  </div>
+
+  <div id="hud">
+    <button id="lapShow" title="랩타임 열기 (L)">LAP TIMER ▾</button>
+    <div id="lap-hud">
+      <button id="lapClose" title="닫기 (L)" aria-label="Close lap timer">×</button>
+      <div>
+        <div class="label">LAP</div>
+        <div class="value" id="lapNum">—</div>
+      </div>
+      <div>
+        <div class="label">CURRENT</div>
+        <div class="value big" id="lapCurrent">—:——.———</div>
+      </div>
+      <div>
+        <div class="label">BEST</div>
+        <div class="value green" id="lapBest">—:——.———</div>
+      </div>
+      <div class="full" style="display:flex;justify-content:space-around;border-top:1px solid #441111;padding-top:6px;">
+        <div><span class="label">LAST</span> <span id="lapLast" style="color:#fff">—:——.———</span></div>
+        <div><span class="label">Δ</span> <span id="lapDelta" style="color:#fff">—</span></div>
+      </div>
+    </div>
+    <div id="speed-block">
+      <div class="label">SPEED</div>
+      <div><span class="value" id="speedDisplay">0</span><span class="unit"> km/h</span></div>
+    </div>
+    <div id="gear-block">
+      <div class="label">GEAR</div>
+      <div class="gear" id="gearDisplay">N</div>
+    </div>
+    <div id="rpm-tach">
+      <div class="label">RPM <span class="rpm-text" id="rpmDisplay">800</span></div>
+      <div class="tach-track">
+        <div class="fill" id="rpmFill"></div>
+        <div class="redline"></div>
+      </div>
+      <div id="shift-light"></div>
+    </div>
+    <div id="slip-info">
+      αF <span id="slipFDisp">0.00</span>  αR <span id="slipRDisp">0.00</span>  κR <span id="kappaRDisp">0.00</span>
+    </div>
+    <div id="status-label">CRUISE</div>
+    <div id="rev-strip">
+      <span class="led g"></span><span class="led g"></span><span class="led g"></span><span class="led g"></span>
+      <span class="led a"></span><span class="led a"></span><span class="led a"></span><span class="led a"></span>
+      <span class="led r"></span><span class="led r"></span><span class="led r"></span><span class="led r"></span>
+    </div>
+    <div id="g-meter">
+      <div class="g-cross-h"></div><div class="g-cross-v"></div>
+      <div class="g-title">G-FORCE</div>
+      <div class="g-trail"></div>
+      <div id="g-dot"></div>
+      <div class="g-readout" id="gReadout">0.00 G</div>
+    </div>
+    <div id="minimap">
+      <div id="minimap-label">INJE SPEEDIUM</div>
+      <img src="map.png" alt="">
+      <div id="minimap-car"></div>
+    </div>
+    <div id="sim-panel">
+      <div class="section">
+        <h4>AIDS</h4>
+        <div class="row">
+          <span class="aid" id="aid-abs">ABS</span>
+          <span class="aid" id="aid-tc">TC <span id="tc-level">1</span></span>
+          <span class="aid" id="aid-esc">ESC</span>
+        </div>
+      </div>
+      <div class="section">
+        <h4>TIRES (TEMP / WEAR)</h4>
+        <div class="row"><span>F</span><span class="temp" id="tireTempF">—°C</span><span id="tireWearF">0%</span></div>
+        <div class="tbar"><span id="tireTempBarF" style="width:0%"></span></div>
+        <div class="tbar wear"><span id="tireWearBarF" style="width:0%"></span></div>
+        <div class="row" style="margin-top:6px;"><span>R</span><span class="temp" id="tireTempR">—°C</span><span id="tireWearR">0%</span></div>
+        <div class="tbar"><span id="tireTempBarR" style="width:0%"></span></div>
+        <div class="tbar wear"><span id="tireWearBarR" style="width:0%"></span></div>
+      </div>
+      <div class="section">
+        <h4>BRAKES</h4>
+        <div class="row"><span>F</span><span class="temp" id="brakeTempF">—°C</span></div>
+        <div class="row"><span>R</span><span class="temp" id="brakeTempR">—°C</span></div>
+      </div>
+    </div>
+    <div id="help-overlay">
+      <b>GR86 SIM</b><br>
+      <kbd>W</kbd>가속 <kbd>S</kbd>브레이크<br>
+      <kbd>A</kbd>/<kbd>D</kbd>조향 <kbd>Space</kbd>핸드<br>
+      <kbd>[</kbd>/<kbd>]</kbd>기어 <kbd>C</kbd>스키드<br>
+      <kbd>1</kbd>ABS <kbd>2</kbd>TC <kbd>3</kbd>ESC<br>
+      <kbd>4</kbd>TC레벨 <kbd>L</kbd>랩HUD <kbd>R</kbd>리셋 <kbd>H</kbd>도움말
+    </div>
+  </div>
+</div>
+
+<div id="dashboard">
+  <label>Tire μ <input type="range" id="grip" min="0.6" max="1.6" step="0.05" value="1.0"></label>
+  <label>Steer Max <input type="range" id="steerMax" min="0.35" max="0.7" step="0.01" value="0.5"></label>
+  <label>Volume <input type="range" id="volume" min="0" max="1" step="0.05" value="0.35"></label>
+  <button id="resetBtn">RESET</button>
+  <button id="clearSkidBtn">CLEAR SKID</button>
+</div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════
+//  상수 / 제원
+// ════════════════════════════════════════════════════════════
+const SPEC = {
+  // ── 차체 (GR86 실차 스펙) ──
+  mass: 1285,                   // kg, 6MT
+  inertia: 1950,                // Izz, kg·m² (실차 1700~2100 중간)
+  lf: 1.21, lr: 1.36,           // 53:47 무게배분
+  wheelbase: 2.575,
+  cgHeight: 0.46,
+  track: 1.52,
+  wheelRadius: 0.31,
+  I_wheel_F: 1.6, I_wheel_R: 2.0,   // 전축/후축 비대칭 (후축은 드라이브샤프트 포함)
+  I_eng: 0.18,                  // FA24 + DMFW + 풀리, 0.18~0.20 표준
+  idleRpm: 800, maxRpm: 7500, redline: 7000,
+  peakTorque: 250, peakTorqueRpm: 3700,
+  gears: [-3.437, 0, 3.626, 2.188, 1.541, 1.213, 1.000, 0.767],
+  finalDrive: 4.100,
+
+  // ── 브레이크 (정적 + 동적 EBD) ──
+  brakeMaxTotal: 3200,          // 전후 합산 (Nm), 동적 분배
+  brakeStaticBias: 0.625,       // 정적 전륜 비율 (62.5:37.5)
+  brakeBiasDynamic: 0.7,        // LT 추종 강도 (0=정적 고정, 1=Fz 비례)
+  handbrakeForce: 3500,         // 케이블 + 후륜 1.5x lock 토크 (실차 추정)
+
+  // ── 클러치 ──
+  clutchMaxTorque: 350,         // Nm OEM (직결 시 cap)
+  drivelineEff: 0.88,           // 변속기+종감속+조인트 효율 (실차 6MT RWD 85~90%)
+
+  // ── 에어로 (스톡 GR86: 양력 차량) ──
+  aeroDragCoef: 0.34,           // 0.5·ρ·Cd·A: 0.5·1.225·0.27·2.06 = 0.34
+  aeroLiftCoef: -0.13,          // 음수 = 양력. 0.5·ρ·Cl·A = 0.13 → Cl ≈ 0.103 (실 GR86 0.10~0.13 하한)
+  aeroLiftFrontFrac: 0.30,      // 양력의 30%만 전륜, 70% 후륜 (후축이 더 들림)
+  rollResist: 150,              // C_rr=0.012, m·g·C_rr ≈ 150 N
+  rollResistVelScale: 12.0,
+
+  // ── Pacejka MF 계수 (Pacejka 2012 기준 GR86 OEM 타이어) ──
+  pacejkaLong: { B: 15, C: 1.5, E: 0.85 },  // κ_peak ≈ 0.12, post-peak 가파르게
+  pacejkaLat:  { B: 12, C: 1.4, E: 0.85 },  // α_peak ≈ 7°
+  loadSensitivity: 0.18,        // mu ∝ Fz^(-0.18), 표준 타이어 load sensitivity
+
+  // ── 타이어 열역학 (비대칭 그립 곡선) ──
+  tireOptimalTemp: 85,
+  tireTempWindowCold: 55,       // 콜드 쪽 완만한 곡선
+  tireTempWindowHot:  22,       // 오버히트 쪽 가파른 곡선 (실측)
+  tireMinMu: 0.78,
+  tireAmbient: 20,
+  tireStartTemp: 65,
+  tireHeatCoef: 2.5e-4,
+  tireCoolBase: 0.0015,         // 자연대류 시정수 ~11분 (실차 정지 hot 타이어)
+  tireCoolSpeed: 0.0025,        // 0.012 → 0.0025: 평형 온도 적정선 유지
+  tireCoolSpeedExp: 0.8,
+  tireRollHeat: 75,             // W/(m/s) per axle, 실차 구름저항 발열 매칭
+  arbBalanceFront: 0.55,        // 안티-롤 바 분배: 전륜 55% (실 GR86)
+  tireWearCoef: 5.0e-8,
+  tireWearKappaThreshold: 0.05,   // 종방향 슬립비 임계 (무차원)
+  tireWearAlphaThreshold: 0.09,   // 슬립각 임계 (rad ≈ 5°) — 단위 분리
+  tireWearGripFactor: 0.35,
+
+  // ── 브레이크 열역학 ──
+  brakeMass: 14,                // 캘리퍼+패드+로터 한 축당 kg
+  brakeSpecHeat: 460,           // J/(kg·K) 디스크 강철
+  brakeArea: 0.18,              // m² 효과적 방열면적
+  brakeCoolBase: 30,            // 자연대류 [W/(K·m²)] — 정지 hot 브레이크 τ ≈ 20분 (실차 15~25분)
+  brakeCoolSpeed: 1.5,          // 강제대류 비례 계수
+  brakeFadeStart: 500,
+  brakeFadeKnee: 700,           // 무릎점 — 여기서부터 가파르게 떨어짐
+  brakeFadeMin: 0.30,
+
+  // ── 보조장비 ──
+  absSlipThreshold: 0.12,       // 0.10 → 0.12 (peak grip 영역 유지)
+  absModulation: 5,             // 8 → 5 (덜 공격적)
+  tcSlipThreshold: [0.40, 0.20, 0.14, 0.10],  // L1 0.18→0.20, L3 0.05→0.10
+  tcCutFactor: 5,
+  escYawRateError: 0.08,        // rad/s, 실 ESC는 yaw rate error로 트리거
+  escBrakeForceMax: 6000,       // 가상 휠 브레이크 최대 힘 (N)
+};
+
+const CONFIG = {
+  renderScale: 20,
+  substeps: 8,
+  maxDt: 0.05,
+  cameraLookAheadMaxScreen: 0.30,
+  cameraLerp: 8,
+  baseShakeScale: 0.025,
+  particleMax: 320,
+  // 스키드 세그먼트 — 뷰포트 캔버스에 매 프레임 재그림
+  skidLifeSec: 10.0,
+  skidMaxSegs: 4000,
+  // 시작 위치: 스타트 라인 뒤 12m 그리드. W로 가속 → 라인 통과 시 랩1 시작
+  startX: 1022, startY: 891, startYaw: -Math.PI / 2,
+};
+
+// ───── 트랙 (인제 스피디움 map.png) ─────
+const TRACK = {
+  imgWidthMeters: 1500,
+  originXm: 50, originYm: 50,
+  mask: null,
+  maskW: 0, maskH: 0,
+  metersPerImgPx: 1,
+  // 오프트랙 페널티 OFF — 잔디든 트랙이든 동일 물리 (테스트 모드)
+  offTrackMu: 1.0,
+  offTrackRollMult: 1.0,
+  offTrackDragCoef: 0.0,
+  offTrackEnginePenalty: 1.0,
+};
+
+// ───── 스타트/피니시 라인 (메인 직선 중간 가로 60m) ─────
+const START_LINE = {
+  cx: 1022, cy: 879,     // 중심점 (m)
+  halfWidth: 30,         // 좌우 30m → 폭 60m
+  // 차가 통과 시 -y 방향(북향)이 정상 진행 방향
+  validDy: -1,
+};
+
+// ───── 랩 타이밍 상태 ─────
+const lap = {
+  num: 0,                // 완주한 랩 수
+  startMs: null,         // 현재 랩 시작 시각
+  current: 0,
+  last: null, best: null,
+  prevX: 0, prevY: 0,
+  ready: false,          // 첫 통과 후 활성화
+  history: [],
+};
+
+// ════════════════════════════════════════════════════════════
+//  DOM 캐시 (단 1회 조회)
+// ════════════════════════════════════════════════════════════
+const DOM = {
+  car: document.getElementById('car'),
+  brakeLights: document.getElementById('brake-lights'),
+  carBody: document.getElementById('car-body'),
+  world: document.getElementById('world'),
+  skidCanvas: document.getElementById('skidCanvas'),
+  smokeCanvas: document.getElementById('smokeCanvas'),
+  viewport: document.getElementById('viewport'),
+  speedDisplay: document.getElementById('speedDisplay'),
+  gearDisplay: document.getElementById('gearDisplay'),
+  rpmDisplay: document.getElementById('rpmDisplay'),
+  rpmFill: document.getElementById('rpmFill'),
+  shiftLight: document.getElementById('shift-light'),
+  slipFDisp: document.getElementById('slipFDisp'),
+  slipRDisp: document.getElementById('slipRDisp'),
+  kappaRDisp: document.getElementById('kappaRDisp'),
+  statusLabel: document.getElementById('status-label'),
+  helpOverlay: document.getElementById('help-overlay'),
+  minimap: document.getElementById('minimap'),
+  minimapCar: document.getElementById('minimap-car'),
+  gDot: document.getElementById('g-dot'),
+  gTrail: document.querySelector('#g-meter .g-trail'),
+  gReadout: document.getElementById('gReadout'),
+  revStrip: document.getElementById('rev-strip'),
+  revLeds: Array.from(document.querySelectorAll('#rev-strip .led')),
+  trackSurface: document.getElementById('trackSurface'),
+  startLine: document.getElementById('startLine'),
+  lapNum: document.getElementById('lapNum'),
+  lapCurrent: document.getElementById('lapCurrent'),
+  lapBest: document.getElementById('lapBest'),
+  lapLast: document.getElementById('lapLast'),
+  lapDelta: document.getElementById('lapDelta'),
+  lapHud: document.getElementById('lap-hud'),
+  lapClose: document.getElementById('lapClose'),
+  lapShow: document.getElementById('lapShow'),
+  // 심레이싱 시스템
+  aidAbs: document.getElementById('aid-abs'),
+  aidTc: document.getElementById('aid-tc'),
+  aidEsc: document.getElementById('aid-esc'),
+  tcLevel: document.getElementById('tc-level'),
+  tireTempF: document.getElementById('tireTempF'),
+  tireTempR: document.getElementById('tireTempR'),
+  tireTempBarF: document.getElementById('tireTempBarF'),
+  tireTempBarR: document.getElementById('tireTempBarR'),
+  tireWearF: document.getElementById('tireWearF'),
+  tireWearR: document.getElementById('tireWearR'),
+  tireWearBarF: document.getElementById('tireWearBarF'),
+  tireWearBarR: document.getElementById('tireWearBarR'),
+  brakeTempFD: document.getElementById('brakeTempF'),
+  brakeTempRD: document.getElementById('brakeTempR'),
+  gripSlider: document.getElementById('grip'),
+  steerMaxSlider: document.getElementById('steerMax'),
+  volumeSlider: document.getElementById('volume'),
+  resetBtn: document.getElementById('resetBtn'),
+  clearSkidBtn: document.getElementById('clearSkidBtn'),
+};
+const skidCtx = DOM.skidCanvas.getContext('2d');
+const smokeCtx = DOM.smokeCanvas.getContext('2d');
+
+// 캔버스 크기 = 뷰포트 크기. 리사이즈 따라감.
+function resizeCanvases() {
+  const w = DOM.viewport.clientWidth || window.innerWidth;
+  const h = DOM.viewport.clientHeight || window.innerHeight;
+  for (const cv of [DOM.skidCanvas, DOM.smokeCanvas]) {
+    cv.width = w; cv.height = h;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  }
+}
+window.addEventListener('resize', resizeCanvases);
+resizeCanvases();
+
+// ════════════════════════════════════════════════════════════
+//  상태 분리: 물리상태 / 시각상태 / 디버그 / 입력
+// ════════════════════════════════════════════════════════════
+const state = {
+  x: CONFIG.startX, y: CONFIG.startY, yaw: CONFIG.startYaw,
+  vx: 0, vy: 0, yawRate: 0,
+  ax: 0, ay: 0,
+  omegaF: 0, omegaR: 0,
+  engineRpm: SPEC.idleRpm, gear: 0, prevGear: 0,
+  steer: 0,
+  revCut: false,
+
+  // 타이어 (전/후 축별)
+  tireTempF: SPEC.tireStartTemp, tireTempR: SPEC.tireStartTemp,
+  tireWearF: 0, tireWearR: 0,
+
+  // 브레이크
+  brakeTempF: SPEC.tireAmbient, brakeTempR: SPEC.tireAmbient,
+
+  // 보조장비 활성 상태 (시각용)
+  absActiveF: false, absActiveR: false,
+  tcActive: false,
+  escActive: false,
+};
+
+// 보조장비 설정
+const aids = {
+  abs: true,
+  tc: true,    tcLevel: 1,    // 0=off behavior, 1=mild, 2=med, 3=strict
+  esc: true,
+};
+
+const visual = {
+  pitch: 0, pitchRate: 0,
+  roll: 0, rollRate: 0,
+  wheelAngleF: 0, wheelAngleR: 0,
+  camAheadX: 0, camAheadY: 0,
+  shakeImpulse: 0,
+};
+
+const debug = {
+  kappaF: 0, kappaR: 0, alphaF: 0, alphaR: 0,
+  slipMagF: 0, slipMagR: 0,
+  FxR: 0, FyR: 0,
+  wheelspin: false,
+};
+
+const inputs = {
+  throttle: 0, brake: 0, hand: false,
+  steerCmd: 0,
+  gear: 0,
+  mu: 1.0, maxSteer: 0.5, volume: 0.35,
+};
+
+const keys = {};
+['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','BracketLeft','BracketRight','KeyC','KeyH','KeyR','KeyL','Digit1','Digit2','Digit3','Digit4'].forEach(k => keys[k]=false);
+
+// ════════════════════════════════════════════════════════════
+//  Pacejka — 종/횡 분리 + Combined Slip (σ 방법)
+// ════════════════════════════════════════════════════════════
+function pacejkaCore(slip, Fz, mu, P) {
+  if (Fz < 1) return 0;
+  const D = mu * Fz;
+  const Bs = P.B * slip;
+  return D * Math.sin(P.C * Math.atan(Bs - P.E * (Bs - Math.atan(Bs))));
+}
+
+// ────── 타이어 그립 인자 (온도 + 마모) ──────
+function tireGripFactor(temp, wear) {
+  // 비대칭 가우시안: cold side σ=55 (완만), hot side σ=22 (가파름)
+  // 실측 (Milliken/Haney): 콜드 페널티는 점진적, 오버히트는 가파른 grip drop
+  const opt = SPEC.tireOptimalTemp;
+  const dev = temp - opt;
+  const sigma = dev < 0 ? SPEC.tireTempWindowCold : SPEC.tireTempWindowHot;
+  const x = dev / sigma;
+  const tempMu = SPEC.tireMinMu + (1 - SPEC.tireMinMu) * Math.exp(-x * x);
+  const wearMu = 1 - wear * SPEC.tireWearGripFactor;
+  return tempMu * wearMu;
+}
+
+// ────── 브레이크 페이드 인자 (실측: 700°C 무릎점 이후 가파름) ──────
+function brakeFadeFactor(temp) {
+  if (temp < SPEC.brakeFadeStart) return 1.0;
+  const excess = temp - SPEC.brakeFadeStart;
+  if (temp < SPEC.brakeFadeKnee) {
+    // 500~700°C: 완만한 감소
+    return 1 - excess * 0.0008;
+  }
+  // 700°C+: 가파른 감소
+  const past = temp - SPEC.brakeFadeKnee;
+  return Math.max(SPEC.brakeFadeMin, 0.84 - past * 0.004);
+}
+
+// ────── 안전한 슬립각 (부호 보존 + 저속 가드) ──────
+function safeAlpha(vy_w, vx_w, vEps) {
+  // 정지/극저속에서는 슬립각 0 (가짜 측력 방지)
+  if (Math.hypot(vx_w, vy_w) < vEps) return 0;
+  // vx_w 부호 유지 — 후진 시 lateral force가 안정화 방향으로 작용
+  const vx_safe = Math.abs(vx_w) > vEps ? vx_w : (Math.sign(vx_w) || 1) * vEps;
+  return Math.atan2(vy_w, vx_safe);
+}
+
+// ────── 타이어 load sensitivity: mu(Fz) = mu0 · (Fz/Fz_ref)^(-k) ──────
+// k=0.18 (Milliken): 1.5x 하중 시 그립 7~8% 감소
+function loadSensitiveMu(mu, Fz, Fz_ref) {
+  if (Fz < 1 || Fz_ref < 1) return mu;
+  return mu * Math.pow(Fz / Fz_ref, -SPEC.loadSensitivity);
+}
+
+// σ 방법 — 종/횡 결합슬립
+//  σx = κ / (1+|κ|),  σy = tan(α) / (1+|κ|),  σ = √(σx²+σy²)
+//  F   = pacejka(σ),  Fx = F·σx/σ,  Fy = -F·σy/σ
+//  서로 다른 곡선을 쓸 땐: 종력은 종 곡선, 횡력은 횡 곡선으로 가중
+function combinedTireForce(kappa, alpha, Fz, mu) {
+  const sigmaX = kappa / (1 + Math.abs(kappa));
+  // sin(α) 사용: tan과 달리 |α|>π/2에서 부호 폭주 없음, 스핀 시 자연 거동
+  const sigmaY = Math.sin(alpha) / (1 + Math.abs(kappa));
+  const sigma = Math.hypot(sigmaX, sigmaY);
+  if (sigma < 1e-5) return { Fx: 0, Fy: 0 };
+  // 종/횡 각각 자기 곡선으로 force magnitude 계산
+  const Fxp = pacejkaCore(sigma, Fz, mu, SPEC.pacejkaLong);
+  const Fyp = pacejkaCore(sigma, Fz, mu, SPEC.pacejkaLat);
+  // 비율은 σ-분배
+  return {
+    Fx:  Fxp * (sigmaX / sigma),
+    Fy: -Fyp * (sigmaY / sigma),
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  엔진 토크 곡선 — GR86 FA24 (3700~6500 평탄 + 4000 dip)
+// ════════════════════════════════════════════════════════════
+function engineTorque(rpm) {
+  // GR86 FA24 NA 실 dyno 보간 (Nm):
+  //   200~700: 25→75 (저rpm ramp, stall 방지), 1500: 185, 2500: 215, 3700: 250 (peak),
+  //   4000: 232 (dip), 5000: 245, 6500: 250, 7000: 215, 7400: 195, 7500: 0 (cut)
+  if (rpm < 200 || rpm > SPEC.maxRpm) return 0;
+  const peak = SPEC.peakTorque;
+  if (rpm < 700) {
+    // 저rpm ramp — 실 FA24도 600~700rpm 구간 50~80 Nm 토크
+    return 25 + (75 - 25) * (rpm - 200) / 500;
+  }
+  if (rpm < 1500) {
+    // idle 75 → 1500rpm 185
+    return 75 + (185 - 75) * (rpm - 700) / 800;
+  }
+  if (rpm < 2500) {
+    return 185 + (215 - 185) * (rpm - 1500) / 1000;
+  }
+  if (rpm < 3700) {
+    return 215 + (peak - 215) * (rpm - 2500) / 1200;
+  }
+  if (rpm < 4200) {
+    // 4000rpm dip ~232Nm
+    const u = (rpm - 4000) / 200;
+    return peak - 18 * Math.exp(-u * u);
+  }
+  if (rpm < 6500) {
+    // 4200~6500 plateau 245~250
+    return 245 + 5 * Math.sin(((rpm - 4200) / 2300) * Math.PI);
+  }
+  if (rpm < 7400) {
+    // 6500 250 → 7400 195
+    return 250 - (250 - 195) * (rpm - 6500) / 900;
+  }
+  // 7400~7500 컷
+  return 195 * (1 - (rpm - 7400) / 100);
+}
+
+// ════════════════════════════════════════════════════════════
+//  트랙 이미지 → 마스크 (off-track 그립 판정용)
+// ════════════════════════════════════════════════════════════
+(function loadTrack() {
+  const img = document.getElementById('trackImg');
+  const finalize = () => {
+    const W = img.naturalWidth, H = img.naturalHeight;
+    if (!W || !H) return;
+    TRACK.metersPerImgPx = TRACK.imgWidthMeters / W;
+    TRACK.maskW = W; TRACK.maskH = H;
+
+    // 표시 크기 갱신 (실제 비율 유지)
+    const dispW = TRACK.imgWidthMeters * CONFIG.renderScale;
+    const dispH = dispW * H / W;
+    img.style.width = dispW + 'px';
+    img.style.height = dispH + 'px';
+    img.style.left = (TRACK.originXm * CONFIG.renderScale) + 'px';
+    img.style.top  = (TRACK.originYm * CONFIG.renderScale) + 'px';
+
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0);
+      const id = ctx.getImageData(0, 0, W, H);
+      const d = id.data;
+
+      // 1단계: 이진화 — 어두운 픽셀(경계선) = 0, 밝은 픽셀 = 1
+      const bin = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        const r = d[i*4], g = d[i*4+1], b = d[i*4+2];
+        bin[i] = (r + g + b > 540) ? 1 : 0;   // 평균 180 이상
+      }
+
+      // 2단계: 트랙 내부 시드에서 플러드필 — 메인 strip 중심 (실측 검증된 좌표)
+      const seedCandidates = [
+        [469, 300],   // 메인 스트레이트 (우측 vertical strip 중심)
+        [469, 400],   // 메인 스트레이트 중간
+        [463, 500],   // 메인 스트레이트 하단
+        [488, 350],   // 피트 레인 (메인과 평행)
+        [575, 200],   // 우상단 헤어핀 strip
+        [165, 700],   // 좌하단 루프
+      ];
+
+      const mask = new Uint8Array(W * H);
+      let totalFilled = 0;
+      for (const [sx, sy] of seedCandidates) {
+        const seedIdx = sx + sy * W;
+        if (mask[seedIdx] || !bin[seedIdx]) continue;
+        // 4방향 스택 플러드필
+        const stack = [seedIdx];
+        let filled = 0;
+        while (stack.length) {
+          const idx = stack.pop();
+          if (mask[idx] || !bin[idx]) continue;
+          mask[idx] = 1; filled++;
+          const x = idx % W, y = (idx / W) | 0;
+          if (x > 0)     stack.push(idx - 1);
+          if (x < W - 1) stack.push(idx + 1);
+          if (y > 0)     stack.push(idx - W);
+          if (y < H - 1) stack.push(idx + W);
+        }
+        totalFilled += filled;
+        // 작은 영역(노이즈)은 무시
+        if (filled < 500) {
+          // 되돌리기
+          for (let i = 0; i < W * H; i++) if (mask[i] === 1 && bin[i]) {/* keep */}
+        }
+      }
+      TRACK.mask = mask;
+      console.log(`[track] mask built: ${totalFilled} pixels = ${(totalFilled/(W*H)*100).toFixed(1)}% of image`);
+
+      // ───── 아스팔트 렌더 (마스크 기반) ─────
+      renderTrackSurface(mask, W, H);
+    } catch (e) {
+      console.warn('[track] mask build failed (CORS?). 스키매틱 PNG 유지:', e);
+      showSchematicFallback();
+    }
+  };
+
+  // 폴백: 마스크 빌드 불가 시 원본 PNG를 인버트해서 표시 (file:// 등)
+  function showSchematicFallback() {
+    TRACK.mask = null;
+    img.style.cssText = '';
+    img.style.position = 'absolute';
+    img.style.left  = (TRACK.originXm * CONFIG.renderScale) + 'px';
+    img.style.top   = (TRACK.originYm * CONFIG.renderScale) + 'px';
+    const dispW = TRACK.imgWidthMeters * CONFIG.renderScale;
+    img.style.width  = dispW + 'px';
+    img.style.height = (img.naturalWidth ? dispW * img.naturalHeight / img.naturalWidth : dispW * 1.2) + 'px';
+    img.style.opacity = '0.95';
+    img.style.filter = 'invert(1) brightness(0.7)';
+    img.style.mixBlendMode = 'screen';
+    img.style.zIndex = '1';
+  }
+
+  // crossorigin 로드가 실패하면 (file:// 등) 속성 제거 후 재시도 — 마스크 없이 PNG만 표시
+  img.addEventListener('error', () => {
+    console.warn('[track] crossorigin 로드 실패 — 일반 모드로 재시도');
+    img.removeAttribute('crossorigin');
+    img.addEventListener('load', showSchematicFallback, { once: true });
+    const src = img.src; img.src = ''; img.src = src;
+  }, { once: true });
+
+  // 안전망: 3초 내 트랙 표면이 안 만들어지면 폴백
+  setTimeout(() => {
+    if (!TRACK.mask && img.naturalWidth && DOM.trackSurface.width <= 300) {
+      console.warn('[track] timeout — 스키매틱 폴백');
+      showSchematicFallback();
+    }
+  }, 3000);
+
+  if (img.complete && img.naturalWidth) finalize();
+  else img.addEventListener('load', finalize, { once: true });
+})();
+
+// ────── 마스크 → 아스팔트 트랙 캔버스 렌더 ──────
+function renderTrackSurface(mask, W, H) {
+  const cv = DOM.trackSurface;
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: false });
+
+  // 0) 마스크 dilation — 트랙 폭을 넓혀 시인성 ↑ (4회 이터레이션)
+  let dilated = mask;
+  for (let iter = 0; iter < 4; iter++) {
+    const next = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = x + y * W;
+        if (dilated[i]) { next[i] = 1; continue; }
+        // 8방향 이웃 중 하나라도 마스크면 채움
+        if (x > 0 && dilated[i-1]) { next[i] = 1; continue; }
+        if (x < W-1 && dilated[i+1]) { next[i] = 1; continue; }
+        if (y > 0 && dilated[i-W]) { next[i] = 1; continue; }
+        if (y < H-1 && dilated[i+W]) { next[i] = 1; continue; }
+        if (x > 0 && y > 0 && dilated[i-1-W]) { next[i] = 1; continue; }
+        if (x < W-1 && y > 0 && dilated[i+1-W]) { next[i] = 1; continue; }
+        if (x > 0 && y < H-1 && dilated[i-1+W]) { next[i] = 1; continue; }
+        if (x < W-1 && y < H-1 && dilated[i+1+W]) { next[i] = 1; }
+      }
+    }
+    dilated = next;
+  }
+  // 확장된 마스크로 isOnTrack도 사용
+  TRACK.mask = dilated; TRACK.maskW = W; TRACK.maskH = H;
+
+  // 1) 아스팔트 베이스 (밝게 + 노이즈)
+  const id = ctx.createImageData(W, H);
+  const d = id.data;
+  for (let i = 0; i < W * H; i++) {
+    if (dilated[i]) {
+      const n = (Math.random() * 18) | 0;
+      d[i*4]     = 80 + n;       // 더 밝게 (55 → 80)
+      d[i*4 + 1] = 80 + n;
+      d[i*4 + 2] = 85 + n;
+      d[i*4 + 3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+
+  // 2) 트랙 가장자리 흰 라인 — 2px 두께
+  ctx.fillStyle = 'rgba(250,250,255,0.95)';
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const i = x + y * W;
+      if (!dilated[i]) continue;
+      if (!dilated[i-1] || !dilated[i+1] || !dilated[i-W] || !dilated[i+W]) {
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+
+  // 3) 노란 센터 레이싱 라인 — medial axis 근사 (행/열 짧은축 중점)
+  ctx.fillStyle = 'rgba(255,205,30,0.92)';
+  // 행 스캔: 수직 strip의 가운데
+  for (let y = 0; y < H; y++) {
+    let i = 0;
+    while (i < W) {
+      if (!dilated[i + y * W]) { i++; continue; }
+      const start = i;
+      while (i < W && dilated[i + y * W]) i++;
+      const end = i - 1;
+      const mid = (start + end) >> 1;
+      const rowRun = end - start + 1;
+      // mid에서 수직 런 길이 측정
+      let u = y, d2 = y;
+      while (u > 0 && dilated[mid + (u-1) * W]) u--;
+      while (d2 < H-1 && dilated[mid + (d2+1) * W]) d2++;
+      const colRun = d2 - u + 1;
+      // strip이 수직 방향(=행 런이 더 짧음)일 때만 행 중점이 의미있는 centerline
+      if (rowRun <= colRun && rowRun < 50) {
+        ctx.fillRect(mid - 1, y, 2, 1);  // 두께 2px
+      }
+    }
+  }
+  // 열 스캔: 수평 strip의 가운데
+  for (let x = 0; x < W; x++) {
+    let i = 0;
+    while (i < H) {
+      if (!dilated[x + i * W]) { i++; continue; }
+      const start = i;
+      while (i < H && dilated[x + i * W]) i++;
+      const end = i - 1;
+      const mid = (start + end) >> 1;
+      const colRun = end - start + 1;
+      let l = x, r = x;
+      while (l > 0 && dilated[(l-1) + mid * W]) l--;
+      while (r < W-1 && dilated[(r+1) + mid * W]) r++;
+      const rowRun = r - l + 1;
+      if (colRun < rowRun && colRun < 50) {
+        ctx.fillRect(x, mid - 1, 1, 2);  // 두께 2px (세로방향)
+      }
+    }
+  }
+
+  // 출력 크기
+  const dispW = TRACK.imgWidthMeters * CONFIG.renderScale;
+  const dispH = dispW * H / W;
+  cv.style.width = dispW + 'px';
+  cv.style.height = dispH + 'px';
+  cv.style.left = (TRACK.originXm * CONFIG.renderScale) + 'px';
+  cv.style.top  = (TRACK.originYm * CONFIG.renderScale) + 'px';
+}
+
+// ────── 스타트/피니시 라인 DOM 배치 ──────
+function placeStartLine() {
+  DOM.startLine.style.left = (START_LINE.cx * CONFIG.renderScale) + 'px';
+  DOM.startLine.style.top  = (START_LINE.cy * CONFIG.renderScale) + 'px';
+}
+placeStartLine();
+
+// ────── 선분 교차 검사 ──────
+function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
+  const d = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+  if (Math.abs(d) < 1e-10) return null;
+  const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / d;
+  const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / d;
+  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return { t, u };
+  return null;
+}
+
+// ────── 랩 통과 감지 + 시간 업데이트 ──────
+function updateLapTiming() {
+  // 매 프레임 호출 — prevX/Y 초기화는 첫 호출 시
+  if (!lap._inited) {
+    lap.prevX = state.x; lap.prevY = state.y;
+    lap._inited = true;
+    return;
+  }
+  const x1 = lap.prevX, y1 = lap.prevY;
+  const x2 = state.x,   y2 = state.y;
+  // 차가 거의 안 움직였으면 스킵
+  if (Math.abs(x2 - x1) + Math.abs(y2 - y1) < 0.1) {
+    lap.prevX = x2; lap.prevY = y2;
+    // 현재랩 시간만 갱신
+    if (lap.startMs !== null) lap.current = (performance.now() - lap.startMs) / 1000;
+    return;
+  }
+  // 스타트 라인 끝점
+  const lx1 = START_LINE.cx - START_LINE.halfWidth, ly1 = START_LINE.cy;
+  const lx2 = START_LINE.cx + START_LINE.halfWidth, ly2 = START_LINE.cy;
+  const hit = segmentsIntersect(x1, y1, x2, y2, lx1, ly1, lx2, ly2);
+
+  if (hit) {
+    const dy = y2 - y1;
+    const correctDir = (Math.sign(dy) === START_LINE.validDy);
+    if (correctDir) {
+      const nowMs = performance.now();
+      if (lap.startMs !== null) {
+        const t = (nowMs - lap.startMs) / 1000;
+        // 너무 짧으면 잘못된 통과로 간주 (3초 미만 = 무효)
+        if (t > 3.0) {
+          lap.last = t;
+          if (lap.best === null || t < lap.best) lap.best = t;
+          lap.history.push(t);
+          lap.num++;
+        }
+      }
+      lap.startMs = nowMs;
+      lap.ready = true;
+    }
+  }
+  lap.prevX = x2; lap.prevY = y2;
+  if (lap.startMs !== null) lap.current = (performance.now() - lap.startMs) / 1000;
+}
+
+function fmtLap(sec) {
+  if (sec == null || !isFinite(sec)) return '—:——.———';
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return `${m}:${s.toFixed(3).padStart(6, '0')}`;
+}
+
+function isOnTrack(xm, ym) {
+  if (!TRACK.mask) return true;
+  const ix = ((xm - TRACK.originXm) / TRACK.metersPerImgPx) | 0;
+  const iy = ((ym - TRACK.originYm) / TRACK.metersPerImgPx) | 0;
+  if (ix < 0 || iy < 0 || ix >= TRACK.maskW || iy >= TRACK.maskH) return false;
+  return TRACK.mask[ix + iy * TRACK.maskW] === 1;
+}
+
+// ════════════════════════════════════════════════════════════
+//  오디오 — WebAudio (엔진/스퀼/풍절)
+// ════════════════════════════════════════════════════════════
+let audio = null;
+function initAudio() {
+  if (audio) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const master = ctx.createGain();
+    master.gain.value = inputs.volume;
+    master.connect(ctx.destination);
+
+    // 엔진: 다중 하모닉 + 미세 디튜닝 — 4기통 점화 주파수 = rpm/30
+    const engGain = ctx.createGain(); engGain.gain.value = 0;
+    // 엔진 출력에 LPF + HPF 결합 (저음 거칠지 않게, 고음 쇳소리 제거)
+    const engHP = ctx.createBiquadFilter(); engHP.type = 'highpass'; engHP.frequency.value = 40;
+    const engLP = ctx.createBiquadFilter(); engLP.type = 'lowpass'; engLP.frequency.value = 2200; engLP.Q.value = 0.7;
+    engGain.connect(engHP).connect(engLP).connect(master);
+
+    const oscs = [
+      {type:'sawtooth', mul: 0.5,  detune:  -7, g: 0.32}, // 서브하모닉 (배기 부밍)
+      {type:'sawtooth', mul: 1.0,  detune:   0, g: 0.50}, // 펀더멘털 (점화)
+      {type:'sawtooth', mul: 1.0,  detune:  +9, g: 0.30}, // 디튜닝 페어 — 두께
+      {type:'square',   mul: 2.0,  detune:  -5, g: 0.22}, // 2x — 중역
+      {type:'sawtooth', mul: 3.0,  detune:  +6, g: 0.12}, // 3x — 하이엔드
+      {type:'square',   mul: 4.0,  detune:   0, g: 0.06}, // 4x — 쇳소리
+    ].map(s => {
+      const o = ctx.createOscillator(); o.type = s.type; o.frequency.value = 30; o.detune.value = s.detune;
+      const g = ctx.createGain(); g.gain.value = s.g;
+      o.connect(g).connect(engGain); o.start();
+      return { o, mul: s.mul, g, baseG: s.g };
+    });
+
+    // 노이즈 버퍼 (2초 화이트)
+    const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const nd = noiseBuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+
+    // 타이어 스퀼 — 노이즈 → BPF
+    const tireSrc = ctx.createBufferSource(); tireSrc.buffer = noiseBuf; tireSrc.loop = true;
+    const tireBP = ctx.createBiquadFilter(); tireBP.type = 'bandpass'; tireBP.frequency.value = 1800; tireBP.Q.value = 6;
+    const tireG  = ctx.createGain(); tireG.gain.value = 0;
+    tireSrc.connect(tireBP).connect(tireG).connect(master); tireSrc.start();
+
+    // 풍절 — 노이즈 → LPF
+    const windSrc = ctx.createBufferSource(); windSrc.buffer = noiseBuf; windSrc.loop = true;
+    const windLP  = ctx.createBiquadFilter(); windLP.type = 'lowpass'; windLP.frequency.value = 200;
+    const windG   = ctx.createGain(); windG.gain.value = 0;
+    windSrc.connect(windLP).connect(windG).connect(master); windSrc.start();
+
+    audio = { ctx, master, engGain, engLP, oscs, tireBP, tireG, windLP, windG, lastThrottle: 0, popUntil: 0 };
+    ctx.resume();
+  } catch (e) { console.warn('audio init failed', e); }
+}
+
+function updateAudio() {
+  if (!audio) return;
+  const a = audio, now = a.ctx.currentTime;
+  a.master.gain.setTargetAtTime(inputs.volume, now, 0.05);
+
+  // 엔진 — 점화 주파수 = rpm/30 (4기통)
+  const rpm = Math.max(SPEC.idleRpm, state.engineRpm);
+  const baseHz = rpm / 30;
+  a.oscs.forEach(s => s.o.frequency.setTargetAtTime(baseHz * s.mul, now, 0.015));
+
+  // 부하 (스로틀 + rpm) — 게인 매핑
+  const load = inputs.throttle * 0.60 + Math.min(rpm / SPEC.maxRpm, 1) * 0.30;
+  const idlePresence = 0.14;     // N단 아이들에서도 들리도록
+  let engVol = idlePresence + load;
+
+  // 레브 컷 — 토크 끊기는 순간 짧은 "스터터"
+  if (state.revCut) engVol *= (Math.random() < 0.5 ? 0.4 : 1.0);
+
+  // 디셀 팝 — 고RPM에서 스로틀 갑자기 떼면 "팡!" (오버런 백파이어)
+  const dThrottle = inputs.throttle - a.lastThrottle;
+  if (dThrottle < -0.5 && rpm > 3500) a.popUntil = now + 0.12;
+  a.lastThrottle = inputs.throttle;
+  if (now < a.popUntil) engVol += 0.35;
+
+  a.engGain.gain.setTargetAtTime(engVol, now, 0.03);
+
+  // 엔진 LPF — 고RPM에서 컷오프 ↑ (브라이트), 저RPM에서 ↓ (따뜻)
+  a.engLP.frequency.setTargetAtTime(1200 + rpm * 0.20, now, 0.05);
+
+  // 타이어 스퀼 — 슬립 + 속도
+  const slipMag = Math.max(debug.slipMagF, debug.slipMagR);
+  const speed = Math.hypot(state.vx, state.vy);
+  let squeal = 0;
+  if (speed > 2 && slipMag > 0.2) squeal = Math.min(0.50, (slipMag - 0.15) * 1.5);
+  a.tireG.gain.setTargetAtTime(squeal, now, 0.03);
+  a.tireBP.frequency.setTargetAtTime(1200 + slipMag * 1800, now, 0.05);
+
+  // 풍절 — 속도 비례
+  const wind = Math.min(0.35, Math.max(0, speed - 5) * 0.012);
+  a.windG.gain.setTargetAtTime(wind, now, 0.05);
+  a.windLP.frequency.setTargetAtTime(150 + speed * 25, now, 0.05);
+}
+
+// 첫 사용자 입력에 오디오 초기화
+['keydown','pointerdown'].forEach(ev => window.addEventListener(ev, initAudio, { once: true }));
+
+// ════════════════════════════════════════════════════════════
+//  입력 핸들러
+// ════════════════════════════════════════════════════════════
+window.addEventListener('keydown', (e) => {
+  // 기어 시프트는 즉발 — physics step 안의 prevGear 비교로 임펄스 처리
+  if (e.code === 'BracketRight' && state.gear < 6) state.gear++;
+  if (e.code === 'BracketLeft'  && state.gear > -1) state.gear--;
+  if (e.code === 'KeyC') skidSegments.length = 0;
+  if (e.code === 'KeyH') DOM.helpOverlay.style.display = DOM.helpOverlay.style.display === 'none' ? '' : 'none';
+  if (e.code === 'KeyL') toggleLapHud();
+  if (e.code === 'KeyR') resetCar();
+  if (e.code === 'Digit1') aids.abs = !aids.abs;
+  if (e.code === 'Digit2') aids.tc  = !aids.tc;
+  if (e.code === 'Digit3') aids.esc = !aids.esc;
+  if (e.code === 'Digit4') aids.tcLevel = (aids.tcLevel + 1) % 4;
+  if (keys.hasOwnProperty(e.code)) { e.preventDefault(); keys[e.code] = true; }
+});
+window.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.code)) keys[e.code] = false; });
+DOM.resetBtn.addEventListener('click', resetCar);
+DOM.clearSkidBtn.addEventListener('click', () => { skidSegments.length = 0; });
+
+// 랩 HUD 토글
+function toggleLapHud() {
+  const isHidden = DOM.lapHud.classList.toggle('hidden');
+  DOM.lapShow.classList.toggle('shown', isHidden);
+}
+DOM.lapClose.addEventListener('click', toggleLapHud);
+DOM.lapShow.addEventListener('click', toggleLapHud);
+
+function resetCar() {
+  state.x = CONFIG.startX; state.y = CONFIG.startY; state.yaw = CONFIG.startYaw;
+  state.vx = state.vy = state.yawRate = 0;
+  state.ax = state.ay = 0;
+  state.omegaF = state.omegaR = 0;
+  state.engineRpm = SPEC.idleRpm; state.gear = 0; state.prevGear = 0;
+  state.steer = 0;
+  visual.pitch = visual.pitchRate = visual.roll = visual.rollRate = 0;
+  visual.camAheadX = visual.camAheadY = 0;
+  visual.shakeImpulse = 0;
+  skidSegments.length = 0;
+  smokeParticles.length = 0;
+  for (let i = 0; i < 4; i++) lastWheelPos[i] = null;
+  // 랩 리셋
+  lap.num = 0; lap.startMs = null; lap.current = 0;
+  lap.last = null; lap.best = null; lap.ready = false;
+  lap.history.length = 0;
+  lap._inited = false;
+  // 타이어/브레이크 리셋
+  state.tireTempF = state.tireTempR = SPEC.tireStartTemp;
+  state.tireWearF = state.tireWearR = 0;
+  state.brakeTempF = state.brakeTempR = SPEC.tireAmbient;
+  state.absActiveF = state.absActiveR = state.tcActive = state.escActive = false;
+}
+
+function readInputs() {
+  inputs.throttle = (keys.KeyW || keys.ArrowUp) ? 1 : 0;
+  inputs.brake    = (keys.KeyS || keys.ArrowDown) ? 1 : 0;
+  inputs.hand     = keys.Space;
+  inputs.steerCmd = (keys.KeyA || keys.ArrowLeft) ? -1 : (keys.KeyD || keys.ArrowRight) ? 1 : 0;
+  inputs.mu       = parseFloat(DOM.gripSlider.value);
+  inputs.maxSteer = parseFloat(DOM.steerMaxSlider.value);
+  inputs.volume   = parseFloat(DOM.volumeSlider.value);
+}
+
+// ════════════════════════════════════════════════════════════
+//  물리 — Step
+// ════════════════════════════════════════════════════════════
+function step(dt) {
+  const { throttle, brake, hand, steerCmd, mu, maxSteer } = inputs;
+
+  // ─── 조향: 속도 셈서티브 + 레이트 리미트 ───
+  const speedFactor = 1 / (1 + Math.abs(state.vx) * 0.045);
+  const steerTarget = steerCmd * maxSteer * speedFactor;
+  const steerRate = 4.5;   // rad/s 최대 변화율
+  const dSteer = steerTarget - state.steer;
+  const maxDStep = steerRate * dt;
+  state.steer += Math.max(-maxDStep, Math.min(maxDStep, dSteer));
+
+  // ─── 기어 시프트 ───
+  if (state.gear !== state.prevGear) {
+    const ratioNew = state.gear === 0 ? 0 : SPEC.gears[state.gear + 1] * SPEC.finalDrive;
+    // N → 기어: 클러치 덤프 — 각운동량 보존 (엔진 + 휠 + 차체 관성 포함)
+    if (state.prevGear === 0 && state.gear !== 0) {
+      const omegaEng = state.engineRpm * Math.PI / 30;
+      const r = ratioNew;
+      // 휠은 차체와 (마찰을 통해) 거의 강결합이므로 m·r²을 효과적 휠 관성에 추가
+      // 이 없으면 클러치 덤프 시 휠이 차체보다 50배 빠르게 가속해 비현실적 스파이크
+      const I_w_eff = SPEC.I_wheel_R + SPEC.mass * SPEC.wheelRadius * SPEC.wheelRadius;
+      state.omegaR = (I_w_eff * state.omegaR + SPEC.I_eng * r * omegaEng)
+                  / (I_w_eff + SPEC.I_eng * r * r);
+      state.engineRpm = Math.max(SPEC.idleRpm, Math.abs(state.omegaR * r) * 30 / Math.PI);
+    }
+    // 기어 → N: 엔진 자유 회전 시작, 현 RPM 유지 (마찰로 자연 감속)
+    else if (state.prevGear !== 0 && state.gear === 0) {
+      // nothing — engineRpm 그대로
+    }
+    // 기어 → 기어 (스냅 시프트): 클러치 끊고 기어 변경 후 재결합
+    //   휠 속도 유지, 엔진 RPM은 새 기어비로 강제 일치 (오버레브 안 되도록 클램프)
+    else if (state.prevGear !== 0 && state.gear !== 0) {
+      state.engineRpm = Math.max(SPEC.idleRpm,
+                        Math.min(SPEC.maxRpm + 500, Math.abs(state.omegaR * ratioNew) * 30 / Math.PI));
+    }
+    state.prevGear = state.gear;
+  }
+
+  // ─── 레브 리미터 히스테리시스 (튕기는 느낌) ───
+  if (state.engineRpm >= SPEC.maxRpm)         state.revCut = true;
+  else if (state.engineRpm < SPEC.maxRpm - 250) state.revCut = false;
+
+  // ─── 엔진 RPM 동역학 ───
+  if (state.gear !== 0) {
+    const ratio = SPEC.gears[state.gear + 1] * SPEC.finalDrive;
+    const coupled = Math.abs(state.omegaR * ratio) * 30 / Math.PI;
+    // 휠-결합 RPM이 idle 미만이면 클러치가 자동 슬립 — 엔진 자유회전
+    // (실차에서 클러치 살짝 떼면서 출발하는 거 자동화)
+    if (coupled < SPEC.idleRpm) {
+      const omegaEng = state.engineRpm * Math.PI / 30;
+      const omegaIdle = SPEC.idleRpm * Math.PI / 30;
+      const effectiveThrottle = state.revCut ? 0 : throttle;
+      const T_comb = effectiveThrottle * engineTorque(state.engineRpm);
+      const T_idle = (throttle < 0.02) ? Math.max(0, (omegaIdle - omegaEng) * 2.5) : 0;
+      const b = 0.060;   // viscous 0.025→0.060: 7500rpm 모터링 토크 실차 매칭
+      const T_drag = (throttle < 0.02) ? 1.5 : 0;
+      const num = omegaEng + ((T_comb + T_idle - T_drag) / SPEC.I_eng) * dt;
+      const den = 1 + (b / SPEC.I_eng) * dt;
+      const newOmega = num / den;
+      state.engineRpm = Math.max(200, Math.min(SPEC.maxRpm + 200, newOmega * 30 / Math.PI));
+    } else {
+      // 휠-결합 RPM이 idle 이상 — 클러치 잠김, RPM = 휠×기어비
+      state.engineRpm = Math.min(SPEC.maxRpm + 400, coupled);
+    }
+  } else {
+    // N단: 자유 회전 (semi-implicit Euler, rad/s 기준)
+    //   I·ω_dot = T_comb + T_idle - b·ω - T_drag
+    const omegaEng = state.engineRpm * Math.PI / 30;
+    const omegaIdle = SPEC.idleRpm * Math.PI / 30;
+    const effectiveThrottle = state.revCut ? 0 : throttle;
+    const T_comb = effectiveThrottle * engineTorque(state.engineRpm);
+    // 아이들 컨트롤러 — 스로틀 0일 때 idle 유지 (PI 비례항)
+    const T_idle = (throttle < 0.02) ? Math.max(0, (omegaIdle - omegaEng) * 2.5) : 0;
+    const b = 0.060;                                       // 점성마찰 [Nm/(rad/s)] — 슬립/N단 통일
+    const T_drag = (throttle < 0.02) ? 1.5 : 0;             // 펌핑 손실 (스로틀 닫힘 시)
+    const num = omegaEng + ((T_comb + T_idle - T_drag) / SPEC.I_eng) * dt;
+    const den = 1 + (b / SPEC.I_eng) * dt;
+    const newOmega = num / den;
+    state.engineRpm = Math.max(200, Math.min(SPEC.maxRpm + 200, newOmega * 30 / Math.PI));
+  }
+
+  // ─── 구동 토크 (후륜) ───
+  let Tdrive = 0;
+  if (state.gear !== 0) {
+    const ratio = SPEC.gears[state.gear + 1] * SPEC.finalDrive;
+    const coupled = Math.abs(state.omegaR * ratio) * 30 / Math.PI;
+    const effThrottle = state.revCut ? 0 : throttle;
+
+    // 오프트랙 시 엔진 출력 추가 페널티 (잔디 진입 = 휠스핀 + 흙튀기 손실)
+    const surfacePower = isOnTrack(state.x, state.y) ? 1.0 : TRACK.offTrackEnginePenalty;
+
+    if (coupled < SPEC.idleRpm) {
+      const slipFraction = Math.max(0, Math.min(1, (state.engineRpm - 600) / 1500));
+      const T_eng = effThrottle * engineTorque(state.engineRpm) * surfacePower;
+      const T_demand = T_eng * slipFraction;
+      const T_clutch = Math.sign(T_demand) * Math.min(Math.abs(T_demand), SPEC.clutchMaxTorque);
+      Tdrive = T_clutch * ratio * SPEC.drivelineEff;
+    } else {
+      const T_eng = effThrottle * engineTorque(state.engineRpm) * surfacePower;
+      const T_clutch = Math.sign(T_eng) * Math.min(Math.abs(T_eng), SPEC.clutchMaxTorque);
+      Tdrive = T_clutch * ratio * SPEC.drivelineEff;
+      // 엔진 브레이크 (모터링 손실) — 실차 FA24 매칭, ramp는 유지
+      // motorRamp로 부드러운 트랜지션, 자체 강도는 실측 FMEP 기반 (0.055ω+3, redline 60Nm cap)
+      if (throttle < 0.20 && Math.abs(state.omegaR) > 0.5) {
+        const motorRamp = Math.pow(1 - throttle * 5, 2);
+        const omegaEng = Math.abs(state.omegaR * ratio);
+        const T_motor_raw = 0.055 * omegaEng + 3.0;          // 7000rpm에서 ~43 Nm (실측 55-65 매칭)
+        const T_motor = Math.min(T_motor_raw, 60);
+        Tdrive -= T_motor * Math.abs(ratio) * Math.sign(state.omegaR) * motorRamp;
+      }
+    }
+  }
+
+  // ─── 휠 속도(차체) → 휠 좌표계 ───
+  const vyF = state.vy + SPEC.lf * state.yawRate;
+  const vyR = state.vy - SPEC.lr * state.yawRate;
+  const cs = Math.cos(state.steer), ss = Math.sin(state.steer);
+  const vxF_w =  state.vx * cs + vyF * ss;
+  const vyF_w = -state.vx * ss + vyF * cs;
+  const vxR_w = state.vx;
+  const vyR_w = vyR;
+
+  // ─── 수직 하중 — 종방향 LT + 횡방향 LT (4-corner lite) + 양력 ───
+  const wb = SPEC.wheelbase;
+  const aLongLT = state.ax;
+  const LT_long = SPEC.mass * aLongLT * SPEC.cgHeight / wb;
+  // 에어로: 음수 = 양력 (스톡 GR86 ≈ Cl 0.1)
+  const speedSq = state.vx * state.vx;
+  const Faero_z = SPEC.aeroLiftCoef * speedSq;   // 음수면 양력 (들어올림)
+  const FzF_static = SPEC.mass * 9.81 * SPEC.lr / wb + Faero_z * SPEC.aeroLiftFrontFrac;
+  const FzR_static = SPEC.mass * 9.81 * SPEC.lf / wb + Faero_z * (1 - SPEC.aeroLiftFrontFrac);
+  let FzF = Math.max(0, FzF_static - LT_long);
+  let FzR = Math.max(0, FzR_static + LT_long);
+
+  // 트랙 안/밖 표면 그립
+  const onTrack = isOnTrack(state.x, state.y);
+  const surfaceMu = onTrack ? 1.0 : TRACK.offTrackMu;
+  debug.onTrack = onTrack;
+
+  // 베이스 μ (μ 슬라이더 + 표면 + 온도/마모)
+  const muBase = mu * surfaceMu;
+  const muF_temp = muBase * tireGripFactor(state.tireTempF, state.tireWearF);
+  const muR_temp = muBase * tireGripFactor(state.tireTempR, state.tireWearR);
+
+  // ─── 횡방향 LT 효과: load-sensitive μ (4-corner lite, 안티-롤 분배) ───
+  const Fz_ref = SPEC.mass * 9.81 / 4;
+  const dFz_lat_total = SPEC.mass * Math.abs(state.ay) * SPEC.cgHeight / SPEC.track;
+  const dFz_lat_F = dFz_lat_total * SPEC.arbBalanceFront;        // 전륜 55%
+  const dFz_lat_R = dFz_lat_total * (1 - SPEC.arbBalanceFront);  // 후륜 45%
+  function axleEffectiveMu(muSrc, FzAxle, dFzLat) {
+    if (FzAxle < 10) return 0;
+    const Fz_o_raw = FzAxle / 2 + dFzLat;
+    const Fz_i_raw = FzAxle / 2 - dFzLat;
+    // 외측 단독 케이스 (내측 휠 들림): 전체 하중을 외측이 받음
+    const muLifted = muSrc * Math.pow(FzAxle / Fz_ref, -SPEC.loadSensitivity);
+    if (Fz_i_raw <= 100) return muLifted;
+    // 두 휠 케이스
+    const mu_o = muSrc * Math.pow(Fz_o_raw / Fz_ref, -SPEC.loadSensitivity);
+    const mu_i = muSrc * Math.pow(Fz_i_raw / Fz_ref, -SPEC.loadSensitivity);
+    const muBoth = Math.min((mu_o * Fz_o_raw + mu_i * Fz_i_raw) / FzAxle, muSrc * 1.2);
+    // 100~400 N 구간 부드러운 블렌드 — 들림 직전 이산 점프 제거
+    if (Fz_i_raw < 400) {
+      const t = (Fz_i_raw - 100) / 300;   // 0~1
+      return muLifted + (muBoth - muLifted) * t;
+    }
+    return muBoth;
+  }
+  const muF = axleEffectiveMu(muF_temp, FzF, dFz_lat_F);
+  const muR = axleEffectiveMu(muR_temp, FzR, dFz_lat_R);
+
+  // ─── 슬립 비율 (분모 부호 유지) ───
+  const vEps = 0.5;
+  const denomF = Math.abs(vxF_w) > vEps ? vxF_w : (Math.sign(vxF_w) || 1) * vEps;
+  const denomR = Math.abs(vxR_w) > vEps ? vxR_w : (Math.sign(vxR_w) || 1) * vEps;
+  const kappaF = (state.omegaF * SPEC.wheelRadius - vxF_w) / Math.abs(denomF);
+  const kappaR = (state.omegaR * SPEC.wheelRadius - vxR_w) / Math.abs(denomR);
+
+  // ─── 슬립각 (부호 보존, 정지 시 0) ───
+  const alphaF = safeAlpha(vyF_w, vxF_w, vEps);
+  const alphaR = safeAlpha(vyR_w, vxR_w, vEps);
+
+  // ─── 트랙션 컨트롤 — kappaR 한계 초과 시 Tdrive 감쇠 (레벨 0 = 완전 OFF) ───
+  if (aids.tc && aids.tcLevel > 0 && state.gear !== 0 && Tdrive > 0) {
+    const thresh = SPEC.tcSlipThreshold[aids.tcLevel];
+    const overSlip = Math.max(0, kappaR - thresh);
+    if (overSlip > 0) {
+      Tdrive *= Math.max(0, 1 - overSlip * SPEC.tcCutFactor);
+      state.tcActive = true;
+    } else {
+      state.tcActive = false;
+    }
+  } else {
+    state.tcActive = false;
+  }
+
+  // ─── 타이어 힘 (Combined slip, 전/후 별도 μ) ───
+  const tireF = combinedTireForce(kappaF, alphaF, FzF, muF);
+  const tireR = combinedTireForce(kappaR, alphaR, FzR, muR);
+  let FxF_w = tireF.Fx, FyF_w = tireF.Fy;
+  let FxR_w = tireR.Fx, FyR_w = tireR.Fy;
+
+  // ─── 휠 → 차체 ───
+  const FxF_b = FxF_w * cs - FyF_w * ss;
+  const FyF_b = FxF_w * ss + FyF_w * cs;
+  const FxR_b = FxR_w;
+  const FyR_b = FyR_w;
+
+  // ─── 브레이크 페이드 (열) + EBD (동적 배분) ───
+  const fadeF = brakeFadeFactor(state.brakeTempF);
+  const fadeR = brakeFadeFactor(state.brakeTempR);
+
+  // EBD: 정적 62.5%를 기준점, Fz 비율 변화량을 동적 보정으로 가산
+  // → 정지 시 정확히 brakeStaticBias, 제동 시 전륜↑, 가속 시 후륜↑
+  const FzTotal = Math.max(1, FzF + FzR);
+  const dynBiasF = FzF / FzTotal;
+  const dynBiasF_static = SPEC.lr / SPEC.wheelbase;   // 정적 Fz 비율 (lr/wb)
+  const brakeFRatio = SPEC.brakeStaticBias + (dynBiasF - dynBiasF_static) * SPEC.brakeBiasDynamic;
+  const brakeRRatio = 1 - brakeFRatio;
+  let Tbrake_F = brake * SPEC.brakeMaxTotal * brakeFRatio * fadeF;
+  let Tbrake_R = brake * SPEC.brakeMaxTotal * brakeRRatio * fadeR;
+  if (hand) Tbrake_R += SPEC.handbrakeForce;
+
+  // ω 뒤집힘 방지 캡 (전/후 휠 관성 다름)
+  function brakeTorqueLimited(Tmax, omega, I_w, dtLocal) {
+    if (Tmax < 1 || Math.abs(omega) < 0.05) return 0;
+    const cap = Math.abs(omega) * I_w / dtLocal;
+    return Math.sign(omega) * Math.min(Tmax, cap);
+  }
+
+  // ─── ABS — |κ| 임계 초과 시 브레이크 토크 감쇠 (핸드는 제외) ───
+  if (aids.abs) {
+    const absF = Math.max(0, Math.abs(kappaF) - SPEC.absSlipThreshold);
+    const absR = Math.max(0, Math.abs(kappaR) - SPEC.absSlipThreshold);
+    if (absF > 0) {
+      const cut = Math.max(0, 1 - absF * SPEC.absModulation);
+      Tbrake_F *= cut; state.absActiveF = (cut < 0.95);
+    } else state.absActiveF = false;
+    if (absR > 0) {
+      const handPart = hand ? SPEC.handbrakeForce : 0;
+      const cut = Math.max(0, 1 - absR * SPEC.absModulation);
+      Tbrake_R = (Tbrake_R - handPart) * cut + handPart;
+      state.absActiveR = (cut < 0.95);
+    } else state.absActiveR = false;
+  } else {
+    state.absActiveF = false; state.absActiveR = false;
+  }
+
+  const T_F = -brakeTorqueLimited(Tbrake_F, state.omegaF, SPEC.I_wheel_F, dt) - FxF_w * SPEC.wheelRadius;
+  const T_R = Tdrive - brakeTorqueLimited(Tbrake_R, state.omegaR, SPEC.I_wheel_R, dt) - FxR_w * SPEC.wheelRadius;
+  const omegaF_prev = state.omegaF, omegaR_prev = state.omegaR;
+  state.omegaF += T_F / SPEC.I_wheel_F * dt;
+  state.omegaR += T_R / SPEC.I_wheel_R * dt;
+
+  // 저속 발진 가드 — 타이어 반력만으로 ω가 no-slip 점(v/r)을 한 substep에 넘어서면
+  // explicit Euler가 진동하므로, 그 경우 no-slip 속도에 스냅 (implicit 해의 근사)
+  const noSlipF = vxF_w / SPEC.wheelRadius;
+  const noSlipR = vxR_w / SPEC.wheelRadius;
+  if ((omegaF_prev - noSlipF) * (state.omegaF - noSlipF) < 0 && Tbrake_F < 50) {
+    state.omegaF = noSlipF;
+  }
+  if ((omegaR_prev - noSlipR) * (state.omegaR - noSlipR) < 0 && Math.abs(Tdrive) < 100 && Tbrake_R < 50) {
+    state.omegaR = noSlipR;
+  }
+
+  // 휠 정지 (양쪽 모두 — 풀브레이크/약한 구동/저속)
+  if (brake > 0.3 && Math.abs(vxF_w) < 0.4 && Math.abs(state.omegaF) < 1.5) state.omegaF = 0;
+  if (brake > 0.3 && Math.abs(vxR_w) < 0.4 && Math.abs(state.omegaR) < 1.5 && Math.abs(Tdrive) < 50) state.omegaR = 0;
+
+  // ─── 공기 항력 (전속도 벡터 — 드리프트 시 횡 항력 포함) + 구름저항 + 오프트랙 ───
+  const vMag = Math.hypot(state.vx, state.vy);
+  const aeroX = -SPEC.aeroDragCoef * vMag * state.vx;
+  const aeroY = -SPEC.aeroDragCoef * vMag * state.vy;
+  const surfaceRollMult = onTrack ? 1.0 : TRACK.offTrackRollMult;
+  const offTrackDrag = onTrack ? 0 : -Math.sign(state.vx) * state.vx * state.vx * TRACK.offTrackDragCoef;
+  const rollFx = -SPEC.rollResist * surfaceRollMult * Math.tanh(state.vx * SPEC.rollResistVelScale)
+               + offTrackDrag;
+
+  // ─── 차체 운동방정식 ───
+  const Fx_body = FxF_b + FxR_b + aeroX + rollFx;
+  const Fy_body = FyF_b + FyR_b + aeroY;
+  const Mz = SPEC.lf * FyF_b - SPEC.lr * FyR_b;  // bicycle 모델: 종력은 모멘트 미생성
+
+  // 차체 좌표계 (코리올리 포함된 가속도)
+  const ax_body_coriolis = Fx_body / SPEC.mass + state.vy * state.yawRate;
+  const ay_body_coriolis = Fy_body / SPEC.mass - state.vx * state.yawRate;
+  state.vx += ax_body_coriolis * dt;
+  state.vy += ay_body_coriolis * dt;
+  state.yawRate += Mz / SPEC.inertia * dt;
+
+  // ─── ESC — 실 Bosch ESP 원리: yaw rate error 기반 가상 휠 브레이크 ───
+  // 1. 타겟 yaw rate = vx·tan(steer)/wb (bicycle 모델 정상상태)
+  // 2. yaw error 임계 초과 시 외측 휠에 가상 브레이크 적용 → yaw moment + 차속 감속
+  // 3. vy는 직접 손대지 않음 — 자연스러운 타이어 거동 유지
+  state.escActive = false;
+  if (aids.esc && Math.abs(state.vx) > 2.0) {
+    const yawTarget = Math.tan(state.steer) * state.vx / SPEC.wheelbase;
+    const yawErr = state.yawRate - yawTarget;
+    const errMag = Math.abs(yawErr) - SPEC.escYawRateError;
+    if (errMag > 0) {
+      // 가상 브레이크 힘 (N) — 에러 크기 비례, 최대 cap
+      const brakeForceVirtual = Math.min(SPEC.escBrakeForceMax, errMag * 18000);
+      // 외측 휠 브레이크 → 차체 yaw moment 반대 방향
+      const Mz_esc = -Math.sign(yawErr) * brakeForceVirtual * (SPEC.track / 2);
+      state.yawRate += (Mz_esc / SPEC.inertia) * dt;
+      // 브레이크 부산물: 차속 감속 (실제 4채널 HCU 작동 시)
+      const decelEsc = brakeForceVirtual * 0.35 / SPEC.mass;
+      state.vx -= Math.sign(state.vx) * decelEsc * dt;
+      state.escActive = true;
+    }
+  }
+
+  // 하중이동에 쓸 ax는 "순수 종방향 힘에 의한 가속" — 코리올리 제외
+  state.ax = Fx_body / SPEC.mass;
+  state.ay = Fy_body / SPEC.mass;
+
+  // ─── 타이어 열역학 ───
+  const speedMag = Math.hypot(state.vx, state.vy);
+  // 슬립 미끄럼속도 (벡터) — 실제 슬립 파워는 미끄럼 속도 · 힘 (벡터 dot)
+  const slipVxF = state.omegaF * SPEC.wheelRadius - vxF_w;
+  const slipVxR = state.omegaR * SPEC.wheelRadius - vxR_w;
+  // 슬립 파워 = |F·v_slip|: 종+횡 각자 절댓값 합 (보수적 추정)
+  const slipPowF_pure = Math.abs(FxF_w * slipVxF) + Math.abs(FyF_w * vyF_w);
+  const slipPowR_pure = Math.abs(FxR_w * slipVxR) + Math.abs(FyR_w * vyR_w);
+  // 회전 보일러 (구름저항으로 손실되는 에너지 일부 = 타이어 발열)
+  const rollHeat = SPEC.tireRollHeat * speedMag;
+  const slipPowF = slipPowF_pure + rollHeat;
+  const slipPowR = slipPowR_pure + rollHeat;
+
+  // 자연대류 (속도 무관) + 강제대류 (v^0.8, v>1 m/s에서만)
+  const forcedCool = speedMag > 1.0 ? Math.pow(speedMag, SPEC.tireCoolSpeedExp) * SPEC.tireCoolSpeed : 0;
+  const coolFactor = SPEC.tireCoolBase + forcedCool;
+  const coolF = (state.tireTempF - SPEC.tireAmbient) * coolFactor;
+  const coolR = (state.tireTempR - SPEC.tireAmbient) * coolFactor;
+  state.tireTempF += (slipPowF * SPEC.tireHeatCoef - coolF) * dt;
+  state.tireTempR += (slipPowR * SPEC.tireHeatCoef - coolR) * dt;
+
+  // 마모: 임계 슬립 초과분에 비례 (실제 타이어는 미끄러질 때만 마모)
+  const slipExcessF = Math.max(0, Math.abs(kappaF) - SPEC.tireWearKappaThreshold)
+                    + Math.max(0, Math.abs(alphaF) - SPEC.tireWearAlphaThreshold);
+  const slipExcessR = Math.max(0, Math.abs(kappaR) - SPEC.tireWearKappaThreshold)
+                    + Math.max(0, Math.abs(alphaR) - SPEC.tireWearAlphaThreshold);
+  if (slipExcessF > 0) {
+    state.tireWearF = Math.min(1, state.tireWearF + slipPowF_pure * SPEC.tireWearCoef * slipExcessF * dt);
+  }
+  if (slipExcessR > 0) {
+    state.tireWearR = Math.min(1, state.tireWearR + slipPowR_pure * SPEC.tireWearCoef * slipExcessR * dt);
+  }
+
+  // ─── 브레이크 열역학 (실 m·c 모델) ───
+  // Q (W) = T_brake × ω, ΔT/dt = Q / (m·c)
+  const brakeWorkF = Math.abs(Tbrake_F * state.omegaF);
+  const brakeWorkR = Math.abs(Tbrake_R * state.omegaR);
+  const brakeMC = SPEC.brakeMass * SPEC.brakeSpecHeat;
+  // 대류 냉각: P_cool = (h_base + h_v·v^0.8) × ΔT × A, dT/dt = -P_cool/(m·c)
+  const brakeForcedCool = speedMag > 0.5 ? Math.pow(speedMag, 0.8) : 0;
+  const brakeCoolTerm = SPEC.brakeCoolBase + SPEC.brakeCoolSpeed * brakeForcedCool;
+  const brakeCoolF = (state.brakeTempF - SPEC.tireAmbient) * brakeCoolTerm * SPEC.brakeArea;
+  const brakeCoolR = (state.brakeTempR - SPEC.tireAmbient) * brakeCoolTerm * SPEC.brakeArea;
+  state.brakeTempF += (brakeWorkF - brakeCoolF) / brakeMC * dt;
+  state.brakeTempR += (brakeWorkR - brakeCoolR) / brakeMC * dt;
+
+  // ─── 위치 적분 ───
+  const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+  state.x += (state.vx * cy - state.vy * sy) * dt;
+  state.y += (state.vx * sy + state.vy * cy) * dt;
+  state.yaw += state.yawRate * dt;
+  // 장기 부동소수 정밀도 보호 — (-π, π] 래핑 (모든 사용처가 주기 함수라 안전)
+  if (state.yaw > Math.PI) state.yaw -= 2 * Math.PI;
+  else if (state.yaw < -Math.PI) state.yaw += 2 * Math.PI;
+
+  // ─── 디버그 저장 ───
+  debug.kappaF = kappaF; debug.kappaR = kappaR;
+  debug.alphaF = alphaF; debug.alphaR = alphaR;
+  debug.slipMagF = Math.hypot(kappaF, alphaF);
+  debug.slipMagR = Math.hypot(kappaR, alphaR);
+  debug.FxR = FxR_b; debug.FyR = FyR_b;
+  debug.wheelspin = Math.abs(kappaR) > 0.3 && Math.abs(Tdrive) > 50;
+
+  // ─── 시각 상태 ───
+  // 자연주파수 √(k) ≈ 1.5~1.7 Hz, 감쇠비 ζ ≈ 0.45 (실차 승용 0.3~0.6)
+  const kPitch = 90,  cPitch = 9.0;   // ζ = 9/(2·√90)  = 0.47
+  const kRoll  = 110, cRoll  = 10.5;  // ζ = 10.5/(2·√110) = 0.50
+  const targetPitch = -state.ax * 0.020;
+  const targetRoll  = -state.ay * 0.022;
+  visual.pitchRate += (kPitch * (targetPitch - visual.pitch) - cPitch * visual.pitchRate) * dt;
+  visual.pitch     += visual.pitchRate * dt;
+  visual.rollRate  += (kRoll  * (targetRoll  - visual.roll ) - cRoll  * visual.rollRate ) * dt;
+  visual.roll      += visual.rollRate * dt;
+
+  // 휠 회전각 누적 (시각용)
+  visual.wheelAngleF += state.omegaF * dt;
+  visual.wheelAngleR += state.omegaR * dt;
+  visual.wheelAngleF = visual.wheelAngleF % (Math.PI * 2);
+  visual.wheelAngleR = visual.wheelAngleR % (Math.PI * 2);
+
+  // 이벤트 셰이크 임펄스 — 휠스핀 시작, 하드 브레이크 락업 시
+  if (debug.wheelspin && Math.abs(state.omegaR) > 8) visual.shakeImpulse += 0.6 * dt;
+  if (brake > 0.5 && Math.abs(state.vx) > 5 && (Math.abs(state.omegaF) < 0.5 || Math.abs(state.omegaR) < 0.5)) visual.shakeImpulse += 0.4 * dt;
+  visual.shakeImpulse *= Math.exp(-3 * dt);
+}
+
+// ════════════════════════════════════════════════════════════
+//  렌더
+// ════════════════════════════════════════════════════════════
+let prevHud = {};
+function render(rawDt) {
+  const car = DOM.car;
+  const cyY = Math.cos(state.yaw), syY = Math.sin(state.yaw);
+
+  car.style.setProperty('--yaw-deg', (state.yaw * 180 / Math.PI + 90) + 'deg');
+  car.style.setProperty('--car-x', (state.x * CONFIG.renderScale) + 'px');
+  car.style.setProperty('--car-y', (state.y * CONFIG.renderScale) + 'px');
+  car.style.setProperty('--steer', state.steer + 'rad');
+  car.style.setProperty('--wheel-angle-r', visual.wheelAngleR + 'rad');
+  car.style.setProperty('--wheel-angle-f', visual.wheelAngleF + 'rad');
+
+  // 서스펜션 — 시각적 변형
+  DOM.carBody.style.setProperty('--roll-skew',  (visual.roll * 10) + 'deg');
+  DOM.carBody.style.setProperty('--pitch-stretch', String(1 + visual.pitch * 0.06));
+  DOM.carBody.style.setProperty('--shadow-x', (visual.roll * 18) + 'px');
+  DOM.carBody.style.setProperty('--shadow-y', (14 - visual.pitch * 16) + 'px');
+  DOM.carBody.style.setProperty('--roll-shift', (visual.roll * 8) + 'px');
+
+  // 브레이크 라이트
+  const brakeOn = inputs.brake > 0.1 || inputs.hand;
+  const brakeLevel = Math.max(inputs.brake, inputs.hand ? 1 : 0);
+  DOM.brakeLights.style.setProperty('--brake-light', String(brakeLevel));
+  DOM.brakeLights.style.setProperty('--brake-glow', brakeOn ? (8 + brakeLevel * 16) : 0);
+
+  // 카메라 — 룩어헤드 (화면비) + 이벤트 셰이크 + 미세 노이즈
+  const viewH = DOM.viewport.clientHeight;
+  const lookMax = viewH * CONFIG.cameraLookAheadMaxScreen;
+  const wvx = state.vx * cyY - state.vy * syY;
+  const wvy = state.vx * syY + state.vy * cyY;
+  const wvLen = Math.hypot(wvx, wvy);
+  const speed = Math.hypot(state.vx, state.vy);
+  const lookFactor = Math.min(1, speed / 30);
+  const camTargetX = wvLen > 0.5 ? (wvx / wvLen) * lookMax * lookFactor : 0;
+  const camTargetY = wvLen > 0.5 ? (wvy / wvLen) * lookMax * lookFactor : 0;
+  const lerp = 1 - Math.exp(-CONFIG.cameraLerp * rawDt);
+  visual.camAheadX += (camTargetX - visual.camAheadX) * lerp;
+  visual.camAheadY += (camTargetY - visual.camAheadY) * lerp;
+
+  const sustainShake = Math.min(1.2, speed * CONFIG.baseShakeScale);
+  const totalShake = sustainShake + visual.shakeImpulse * 8;
+  const shakeX = (Math.random() - 0.5) * totalShake;
+  const shakeY = (Math.random() - 0.5) * totalShake;
+
+  camOffsetX = window.innerWidth/2 - state.x * CONFIG.renderScale - visual.camAheadX + shakeX;
+  camOffsetY = viewH/2 - state.y * CONFIG.renderScale - visual.camAheadY + shakeY;
+  DOM.world.style.setProperty('--world-x', camOffsetX + 'px');
+  DOM.world.style.setProperty('--world-y', camOffsetY + 'px');
+
+  // ─── HUD (변화 있을 때만 DOM 업데이트) ───
+  const speedTxt = Math.abs(state.vx * 3.6).toFixed(0);
+  if (prevHud.speed !== speedTxt) { DOM.speedDisplay.innerText = speedTxt; prevHud.speed = speedTxt; }
+  const gearTxt = state.gear === -1 ? 'R' : state.gear === 0 ? 'N' : String(state.gear);
+  if (prevHud.gear !== gearTxt) {
+    DOM.gearDisplay.innerText = gearTxt;
+    prevHud.gear = gearTxt;
+    // 시프트 플래시 — 애니메이션 재트리거
+    DOM.gearDisplay.classList.remove('flash');
+    void DOM.gearDisplay.offsetWidth;
+    DOM.gearDisplay.classList.add('flash');
+  }
+  const rpmTxt = Math.round(state.engineRpm);
+  if (prevHud.rpm !== rpmTxt) {
+    DOM.rpmDisplay.innerText = rpmTxt;
+    DOM.rpmFill.style.width = Math.min(100, state.engineRpm / SPEC.maxRpm * 100) + '%';
+    prevHud.rpm = rpmTxt;
+  }
+  const shiftOn = state.engineRpm >= SPEC.redline;
+  if (prevHud.shift !== shiftOn) { DOM.shiftLight.classList.toggle('on', shiftOn); prevHud.shift = shiftOn; }
+
+  // ─── 레브 LED 스트립 (3000 → 7200 rpm, 12 LED) ───
+  const revFrac = (state.engineRpm - 3000) / (7200 - 3000);
+  const ledsOn = Math.max(0, Math.min(12, Math.floor(revFrac * 12 + 0.5)));
+  if (prevHud.ledsOn !== ledsOn) {
+    DOM.revLeds.forEach((led, i) => led.classList.toggle('on', i < ledsOn));
+    prevHud.ledsOn = ledsOn;
+  }
+  const limiterOn = state.revCut;
+  if (prevHud.limiter !== limiterOn) {
+    DOM.revStrip.classList.toggle('limiter', limiterOn);
+    prevHud.limiter = limiterOn;
+  }
+
+  // ─── G-포스 미터 ───
+  // 운전자가 느끼는 관성력: 가속 시 뒤로(아래), 브레이크 시 앞으로(위), 우회전 시 좌로
+  if (visual.gDispX === undefined) { visual.gDispX = 0; visual.gDispY = 0; visual.gTrailX = 0; visual.gTrailY = 0; }
+  const gLat = state.ay / 9.81;
+  const gLon = state.ax / 9.81;
+  const G_SCALE = 38;          // 1g = 38px (반경 58px → 1.5g 표시 한계)
+  const gMag = Math.hypot(gLat, gLon);
+  const gClamp = gMag > 1.45 ? 1.45 / gMag : 1;
+  const gTargetX = gLat * G_SCALE * gClamp;
+  const gTargetY = gLon * G_SCALE * gClamp;
+  visual.gDispX += (gTargetX - visual.gDispX) * 0.25;
+  visual.gDispY += (gTargetY - visual.gDispY) * 0.25;
+  visual.gTrailX += (visual.gDispX - visual.gTrailX) * 0.08;
+  visual.gTrailY += (visual.gDispY - visual.gTrailY) * 0.08;
+  DOM.gDot.style.setProperty('--g-x', visual.gDispX.toFixed(1) + 'px');
+  DOM.gDot.style.setProperty('--g-y', visual.gDispY.toFixed(1) + 'px');
+  DOM.gTrail.style.setProperty('--gt-x', visual.gTrailX.toFixed(1) + 'px');
+  DOM.gTrail.style.setProperty('--gt-y', visual.gTrailY.toFixed(1) + 'px');
+  const gTxt = gMag.toFixed(2) + ' G';
+  if (prevHud.gTxt !== gTxt) { DOM.gReadout.innerText = gTxt; prevHud.gTxt = gTxt; }
+
+  // ─── 속도 비네트 ───
+  const speedFx = Math.min(1, Math.hypot(state.vx, state.vy) / 45);
+  DOM.viewport.style.setProperty('--speed-fx', speedFx.toFixed(3));
+
+  // 슬립 표시
+  const aF = debug.alphaF.toFixed(2), aR = debug.alphaR.toFixed(2), kR = debug.kappaR.toFixed(2);
+  if (prevHud.aF !== aF) { DOM.slipFDisp.innerText = aF; prevHud.aF = aF; }
+  if (prevHud.aR !== aR) { DOM.slipRDisp.innerText = aR; prevHud.aR = aR; }
+  if (prevHud.kR !== kR) { DOM.kappaRDisp.innerText = kR; prevHud.kR = kR; }
+
+  // 상태 라벨
+  let label = 'CRUISE', cls = '';
+  const absAR = Math.abs(debug.alphaR), absAF = Math.abs(debug.alphaF);
+  const isSpin = (absAR > 0.7 || absAF > 0.7) && Math.abs(state.yawRate) > 1.5;
+  if (debug.onTrack === false) { label = 'OFF TRACK'; cls = 'under'; }
+  else if (isSpin) { label = 'SPIN!'; cls = 'spin'; }
+  else if (debug.wheelspin && absAR > 0.2) { label = 'POWER OVER'; cls = 'power'; }
+  else if (debug.wheelspin) { label = 'WHEELSPIN'; cls = 'wspin'; }
+  else if (absAR > 0.2) { label = 'DRIFT'; cls = 'drift'; }
+  else if (absAF > 0.18 && Math.abs(state.steer) > 0.15) { label = 'UNDERSTEER'; cls = 'under'; }
+  if (prevHud.label !== label) {
+    DOM.statusLabel.innerText = label;
+    DOM.statusLabel.className = ''; if (cls) DOM.statusLabel.classList.add(cls);
+    prevHud.label = label;
+  }
+
+  // ─── 랩 HUD ───
+  const lapNumTxt = lap.ready ? String(lap.num + 1) : '—';
+  if (prevHud.lapNum !== lapNumTxt) { DOM.lapNum.innerText = lapNumTxt; prevHud.lapNum = lapNumTxt; }
+  const cur = lap.startMs !== null ? fmtLap(lap.current) : '—:——.———';
+  if (prevHud.lapCur !== cur) { DOM.lapCurrent.innerText = cur; prevHud.lapCur = cur; }
+  const best = fmtLap(lap.best);
+  if (prevHud.lapBest !== best) { DOM.lapBest.innerText = best; prevHud.lapBest = best; }
+  const last = fmtLap(lap.last);
+  if (prevHud.lapLast !== last) { DOM.lapLast.innerText = last; prevHud.lapLast = last; }
+  // 델타 (현재 vs 베스트)
+  let deltaTxt = '—', deltaColor = '#fff';
+  if (lap.best !== null && lap.startMs !== null) {
+    const d = lap.current - lap.best;
+    deltaTxt = (d >= 0 ? '+' : '') + d.toFixed(2);
+    deltaColor = d < 0 ? '#6f6' : '#f66';
+  }
+  if (prevHud.delta !== deltaTxt) {
+    DOM.lapDelta.innerText = deltaTxt;
+    DOM.lapDelta.style.color = deltaColor;
+    prevHud.delta = deltaTxt;
+  }
+
+  // ─── 심레이싱 시스템 패널 ───
+  // 보조장비 상태
+  function setAidVisual(el, enabled, active) {
+    let cls = enabled ? 'aid on' : 'aid';
+    if (enabled && active) cls = 'aid active';
+    if (el.className !== cls) el.className = cls;
+  }
+  setAidVisual(DOM.aidAbs, aids.abs, state.absActiveF || state.absActiveR);
+  setAidVisual(DOM.aidTc,  aids.tc,  state.tcActive);
+  setAidVisual(DOM.aidEsc, aids.esc, state.escActive);
+  if (prevHud.tcLevel !== aids.tcLevel) { DOM.tcLevel.innerText = aids.tcLevel; prevHud.tcLevel = aids.tcLevel; }
+
+  // 타이어 온도/마모
+  function tempClass(t) {
+    if (t < 60) return 'cold';
+    if (t < 70) return 'cold';
+    if (t <= 105) return 'ok';
+    if (t <= 125) return 'warm';
+    return 'hot';
+  }
+  function tempBarPos(t) { return Math.max(0, Math.min(100, (t - 20) / 1.5)); }   // 20~170 → 0~100%
+
+  const tfT = state.tireTempF.toFixed(0) + '°C';
+  const trT = state.tireTempR.toFixed(0) + '°C';
+  if (prevHud.tfT !== tfT) {
+    DOM.tireTempF.innerText = tfT;
+    DOM.tireTempF.className = 'temp ' + tempClass(state.tireTempF);
+    DOM.tireTempBarF.style.width = tempBarPos(state.tireTempF) + '%';
+    prevHud.tfT = tfT;
+  }
+  if (prevHud.trT !== trT) {
+    DOM.tireTempR.innerText = trT;
+    DOM.tireTempR.className = 'temp ' + tempClass(state.tireTempR);
+    DOM.tireTempBarR.style.width = tempBarPos(state.tireTempR) + '%';
+    prevHud.trT = trT;
+  }
+
+  const tfW = (state.tireWearF * 100).toFixed(0) + '%';
+  const trW = (state.tireWearR * 100).toFixed(0) + '%';
+  if (prevHud.tfW !== tfW) {
+    DOM.tireWearF.innerText = tfW;
+    DOM.tireWearBarF.style.width = Math.min(100, state.tireWearF * 100) + '%';
+    prevHud.tfW = tfW;
+  }
+  if (prevHud.trW !== trW) {
+    DOM.tireWearR.innerText = trW;
+    DOM.tireWearBarR.style.width = Math.min(100, state.tireWearR * 100) + '%';
+    prevHud.trW = trW;
+  }
+
+  // 브레이크 온도
+  function bClass(t) {
+    if (t < 100) return 'cold';
+    if (t < 250) return 'ok';
+    if (t < SPEC.brakeFadeStart) return 'warm';
+    return 'hot';
+  }
+  const bfT = state.brakeTempF.toFixed(0) + '°C';
+  const brT = state.brakeTempR.toFixed(0) + '°C';
+  if (prevHud.bfT !== bfT) {
+    DOM.brakeTempFD.innerText = bfT;
+    DOM.brakeTempFD.className = 'temp ' + bClass(state.brakeTempF);
+    prevHud.bfT = bfT;
+  }
+  if (prevHud.brT !== brT) {
+    DOM.brakeTempRD.innerText = brT;
+    DOM.brakeTempRD.className = 'temp ' + bClass(state.brakeTempR);
+    prevHud.brT = brT;
+  }
+
+  // ─── 미니맵 ───
+  // 실제 렌더링된 미니맵 이미지 크기를 직접 측정해서 스케일 계산 (CSS 의존)
+  const mmImg = DOM.minimap.querySelector('img');
+  const mmW = mmImg ? mmImg.offsetWidth : 210;
+  const mmScale = mmW / TRACK.imgWidthMeters;
+  const mmX = (state.x - TRACK.originXm) * mmScale;
+  const mmY = (state.y - TRACK.originYm) * mmScale;
+  DOM.minimapCar.style.left = mmX + 'px';
+  DOM.minimapCar.style.top  = mmY + 'px';
+  // 차 yaw가 0이면 동쪽향 → 미니맵 화살표가 위(북)를 가리키게 +90° 보정
+  const mmDeg = state.yaw * 180 / Math.PI + 90;
+  DOM.minimapCar.style.setProperty('--mm-rot', mmDeg + 'deg');
+
+  // ─── 스키드마크 + 연기 — 뷰포트 좌표계로 ───
+  renderTracksToViewport();
+}
+
+// 휠 위치 옵셋 (차체 로컬, 미터)
+const wheelOffsetsLocal = [
+  { x:  SPEC.lf, y: -SPEC.track/2 },  // FL
+  { x:  SPEC.lf, y:  SPEC.track/2 },  // FR
+  { x: -SPEC.lr, y: -SPEC.track/2 },  // RL
+  { x: -SPEC.lr, y:  SPEC.track/2 },  // RR
+];
+const lastWheelPos = [null, null, null, null];   // world meters
+const smokeParticles = [];                       // world meters
+const skidSegments  = [];                        // {x1,y1,x2,y2 world m; t시작; intensity}
+let simTime = 0;
+
+// 카메라 → 스크린 변환에 쓰일 오프셋 (render에서 매 프레임 갱신)
+let camOffsetX = 0, camOffsetY = 0;
+
+function spawnSkidsAndSmoke(dt) {
+  const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+  const slipMag = [debug.slipMagF, debug.slipMagF, debug.slipMagR, debug.slipMagR];
+  const speedMag = Math.hypot(state.vx, state.vy);
+
+  for (let i = 0; i < 4; i++) {
+    const off = wheelOffsetsLocal[i];
+    const wx = state.x + off.x * cy - off.y * sy;
+    const wy = state.y + off.x * sy + off.y * cy;
+    const slipping = slipMag[i] > 0.18 && speedMag > 0.5;
+
+    if (slipping) {
+      if (lastWheelPos[i]) {
+        skidSegments.push({
+          x1: lastWheelPos[i].x, y1: lastWheelPos[i].y,
+          x2: wx, y2: wy,
+          t: simTime,
+          a: Math.min(0.85, slipMag[i] * 1.1 + 0.15),
+        });
+        if (skidSegments.length > CONFIG.skidMaxSegs) skidSegments.shift();
+      }
+      lastWheelPos[i] = { x: wx, y: wy };
+
+      // 연기 (월드 미터 단위)
+      if (smokeParticles.length < CONFIG.particleMax) {
+        const rate = Math.min(3, slipMag[i] * 2.5);
+        if (Math.random() < rate * 0.45) {
+          const vWorldX = (state.vx * cy - state.vy * sy);  // m/s
+          const vWorldY = (state.vx * sy + state.vy * cy);
+          smokeParticles.push({
+            x: wx + (Math.random() - 0.5) * 0.6,
+            y: wy + (Math.random() - 0.5) * 0.6,
+            vx: -vWorldX * 0.15 + (Math.random() - 0.5) * 2,
+            vy: -vWorldY * 0.15 + (Math.random() - 0.5) * 2,
+            r: 0.4 + Math.random() * 0.5,    // m
+            life: 1.0,
+            decay: 0.012 + Math.random() * 0.012,
+          });
+        }
+      }
+    } else {
+      lastWheelPos[i] = null;
+    }
+  }
+
+  // 연기 물리 업데이트 (월드 미터 단위)
+  for (let i = smokeParticles.length - 1; i >= 0; i--) {
+    const p = smokeParticles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= Math.exp(-2 * dt); p.vy *= Math.exp(-2 * dt);
+    p.r += 1.4 * dt;
+    p.life -= p.decay * (dt * 60);
+    if (p.life <= 0) smokeParticles.splice(i, 1);
+  }
+
+  // 오래된 스키드 정리
+  const cutoff = simTime - CONFIG.skidLifeSec;
+  while (skidSegments.length && skidSegments[0].t < cutoff) skidSegments.shift();
+}
+
+function renderTracksToViewport() {
+  const SC = CONFIG.renderScale;
+  const vw = DOM.skidCanvas.width, vh = DOM.skidCanvas.height;
+
+  // ── 스키드 ──
+  skidCtx.clearRect(0, 0, vw, vh);
+  skidCtx.lineCap = 'round';
+  skidCtx.lineWidth = 13;
+  for (const s of skidSegments) {
+    const age = simTime - s.t;
+    const fade = Math.max(0, 1 - age / CONFIG.skidLifeSec);
+    const a = s.a * fade;
+    if (a < 0.02) continue;
+    const sx1 = s.x1 * SC + camOffsetX, sy1 = s.y1 * SC + camOffsetY;
+    const sx2 = s.x2 * SC + camOffsetX, sy2 = s.y2 * SC + camOffsetY;
+    // 둘 다 화면 밖이면 스킵
+    if ((sx1 < -20 && sx2 < -20) || (sx1 > vw+20 && sx2 > vw+20)) continue;
+    if ((sy1 < -20 && sy2 < -20) || (sy1 > vh+20 && sy2 > vh+20)) continue;
+    skidCtx.strokeStyle = `rgba(12,12,12,${a})`;
+    skidCtx.beginPath();
+    skidCtx.moveTo(sx1, sy1);
+    skidCtx.lineTo(sx2, sy2);
+    skidCtx.stroke();
+  }
+
+  // ── 연기 ──
+  smokeCtx.clearRect(0, 0, vw, vh);
+  for (const p of smokeParticles) {
+    const sx = p.x * SC + camOffsetX;
+    const sy = p.y * SC + camOffsetY;
+    const sr = p.r * SC;
+    if (sx + sr < 0 || sx - sr > vw || sy + sr < 0 || sy - sr > vh) continue;
+    const g = 200 + Math.floor(p.life * 40);
+    smokeCtx.fillStyle = `rgba(${g},${g},${g},${p.life * 0.55})`;
+    smokeCtx.beginPath();
+    smokeCtx.arc(sx, sy, sr, 0, Math.PI * 2);
+    smokeCtx.fill();
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  메인 루프
+// ════════════════════════════════════════════════════════════
+let lastT = performance.now();
+function frame(now) {
+  const rawDt = Math.min(CONFIG.maxDt, (now - lastT) / 1000);
+  lastT = now;
+
+  readInputs();
+  const SUB = CONFIG.substeps;
+  const dt = rawDt / SUB;
+  for (let i = 0; i < SUB; i++) step(dt);
+
+  simTime += rawDt;
+  spawnSkidsAndSmoke(rawDt);
+  updateLapTiming();
+  render(rawDt);
+  updateAudio();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
