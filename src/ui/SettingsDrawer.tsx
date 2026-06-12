@@ -8,6 +8,8 @@ export function SettingsDrawer() {
   const toggle = useStore((s) => s.toggleSettings);
   const settings = useStore((s) => s.settings);
   const setSetting = useStore((s) => s.setSetting);
+  const showLine = useStore((s) => s.ui.showLine);
+  const toggleLine = useStore((s) => s.toggleLine);
   const sim = getSimulation();
 
   return (
@@ -33,6 +35,10 @@ export function SettingsDrawer() {
           <div className="sd-row"><span>Volume</span><b>{Math.round(settings.volume * 100)}%</b></div>
           <input type="range" min={0} max={1} step={0.05} value={settings.volume}
             onChange={(e) => setSetting('volume', parseFloat(e.target.value))} />
+        </label>
+        <label className="sd-check">
+          <input type="checkbox" checked={showLine} onChange={toggleLine} />
+          <span>레이싱 라인 + 브레이킹 포인트 (B)</span>
         </label>
         <div className="sd-actions">
           <button onClick={sim.reset}>RESET (R)</button>

@@ -67,6 +67,7 @@ interface UiState {
   showHelp: boolean;
   showLap: boolean;
   showSettings: boolean;
+  showLine: boolean;
   trackReady: boolean;
   minimapUrl: string;
 }
@@ -84,6 +85,7 @@ interface Store {
   toggleHelp: () => void;
   toggleLap: () => void;
   toggleSettings: () => void;
+  toggleLine: () => void;
   setTrackReady: (v: boolean) => void;
   setMinimapUrl: (url: string) => void;
 }
@@ -122,6 +124,7 @@ export const useStore = create<Store>((set) => ({
     showHelp: false,
     showLap: true,
     showSettings: false,
+    showLine: true,
     trackReady: false,
     minimapUrl: '',
   },
@@ -134,6 +137,7 @@ export const useStore = create<Store>((set) => ({
   toggleHelp: () => set((s) => ({ ui: { ...s.ui, showHelp: !s.ui.showHelp } })),
   toggleLap: () => set((s) => ({ ui: { ...s.ui, showLap: !s.ui.showLap } })),
   toggleSettings: () => set((s) => ({ ui: { ...s.ui, showSettings: !s.ui.showSettings } })),
+  toggleLine: () => set((s) => ({ ui: { ...s.ui, showLine: !s.ui.showLine } })),
   setTrackReady: (trackReady) => set((s) => ({ ui: { ...s.ui, trackReady } })),
   setMinimapUrl: (minimapUrl) => set((s) => ({ ui: { ...s.ui, minimapUrl } })),
 }));

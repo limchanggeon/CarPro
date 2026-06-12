@@ -8,6 +8,7 @@ import {
   createCarState, step,
 } from './physics';
 import { Track, segmentsIntersect } from './track';
+import { RacingLine, computeRacingLine } from './racingline';
 import { AudioEngine } from './audio';
 import { Renderer } from '../render/renderer';
 import { Telemetry, useStore } from '../store';
@@ -70,6 +71,7 @@ export class Simulation {
   carNx = 0.5;
   carNy = 0.5;
   countdownEndMs = 0;
+  racingLine: RacingLine | null = null;
 
   private keys: Record<string, boolean> = {};
   private renderer: Renderer | null = null;
@@ -93,6 +95,8 @@ export class Simulation {
     useStore.getState().setTrackReady(false);
     this.audio.configure(this.spec.sound, this.spec.idleRpm, this.spec.maxRpm);
     await this.track.load(this.trackDef, import.meta.env.BASE_URL);
+    this.racingLine = computeRacingLine(this.track, this.spec);
+    console.log(`[racingline] ${this.trackDef.id}: ${this.racingLine ? `${this.racingLine.points.length} pts, ${this.racingLine.markers.length} brake markers` : 'unavailable'}`);
     useStore.getState().setMinimapUrl(this.track.minimapUrl);
     useStore.getState().setTrackReady(true);
     this.reset();
@@ -163,6 +167,7 @@ export class Simulation {
     if (e.code === 'BracketRight') this.shiftUp();
     if (e.code === 'BracketLeft') this.shiftDown();
     if (e.code === 'KeyC') this.clearSkids();
+    if (e.code === 'KeyB') useStore.getState().toggleLine();
     if (e.code === 'KeyH') useStore.getState().toggleHelp();
     if (e.code === 'KeyL') useStore.getState().toggleLap();
     if (e.code === 'KeyR') this.reset();

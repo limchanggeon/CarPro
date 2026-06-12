@@ -3,6 +3,9 @@
 import { CONFIG } from '../engine/constants';
 import type { Simulation } from '../engine/simulation';
 import type { CarSpec } from '../engine/cars';
+import { useStore } from '../store';
+
+const ZONE_COLORS = ['rgba(62,200,138,0.5)', 'rgba(232,181,62,0.55)', 'rgba(232,62,62,0.6)'];
 
 const SC = CONFIG.renderScale;
 const GRID_SPACING = 50;   // m
@@ -85,6 +88,7 @@ export class Renderer {
     this.drawGrid(s, vw, vh);
     this.drawTrack(sim, s, vw, vh);
     this.drawStartLine(sim, s);
+    if (useStore.getState().ui.showLine) this.drawRacingLine(sim, s, vw, vh);
     this.drawSkids(sim, s, vw, vh);
     this.drawSmoke(sim, s, vw, vh);
     this.drawCar(sim, s);
@@ -173,6 +177,63 @@ export class Renderer {
       }
     }
     ctx.restore();
+  }
+
+  // 레이싱 라인 — 구간 색상(풀스로틀/한계/브레이킹) + 브레이킹 마커
+  private drawRacingLine(sim: Simulation, s: number, vw: number, vh: number): void {
+    const rl = sim.racingLine;
+    if (!rl) return;
+    const { ctx } = this;
+    const pts = rl.points;
+    const n = pts.length;
+    const pad = 60;
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, 1.6 * s);
+
+    // 같은 zone 연속 구간을 한 path로 — 화면 밖 구간은 스킵
+    let i = 0;
+    while (i < n) {
+      const zone = pts[i].zone;
+      let j = i;
+      ctx.beginPath();
+      let started = false;
+      let anyVisible = false;
+      while (j <= n && pts[j % n].zone === zone) {
+        const p = pts[j % n];
+        const sx = p.x * s + this.camX;
+        const sy = p.y * s + this.camY;
+        if (sx > -pad && sx < vw + pad && sy > -pad && sy < vh + pad) anyVisible = true;
+        if (!started) { ctx.moveTo(sx, sy); started = true; }
+        else ctx.lineTo(sx, sy);
+        j++;
+        if (j - i >= n) break;
+      }
+      if (anyVisible) {
+        ctx.strokeStyle = ZONE_COLORS[zone];
+        ctx.stroke();
+      }
+      i = Math.max(j, i + 1);
+    }
+
+    // 브레이킹 마커 — 라인 가로지르는 이중 바
+    for (const m of rl.markers) {
+      const sx = m.x * s + this.camX;
+      const sy = m.y * s + this.camY;
+      if (sx < -pad || sx > vw + pad || sy < -pad || sy > vh + pad) continue;
+      const px = -m.ty, py = m.tx;            // 진행 방향 수직
+      const half = 4.2 * s;                   // 트랙 가로 8.4m
+      ctx.strokeStyle = 'rgba(255,60,50,0.9)';
+      ctx.lineWidth = Math.max(2, 0.5 * s);
+      for (const off of [0, 1.6]) {
+        const ox = -m.tx * off * s, oy = -m.ty * off * s;
+        ctx.beginPath();
+        ctx.moveTo(sx - px * half + ox, sy - py * half + oy);
+        ctx.lineTo(sx + px * half + ox, sy + py * half + oy);
+        ctx.stroke();
+      }
+    }
   }
 
   private drawSkids(sim: Simulation, s: number, vw: number, vh: number): void {
